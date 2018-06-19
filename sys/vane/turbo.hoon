@@ -190,18 +190,18 @@
   ::
   ::  update tracking
   ::
-      ::  subscribed: are we subscribed to all resources this build depends on?
+      ::  subscribed: are we subscribed to resources for build and sub-builds?
       ::
-      ::    For each build we've attempted, did we subscribe to every resource
-      ::    that it or any of its sub-builds depends on? If build foo depends on
-      ::    bar and baz, bar was run live, and baz was not, then foo is not
-      ::    live.
+      ::    We need to know whether we've subscribed to all the resources under
+      ::    a build. If we've run a build as a once build, we don't subscribe
+      ::    to changes in its resources. We need that information stored
+      ::    persistently so if we run the same build later as a live build,
+      ::    we can use the result and recursively subscribe to the build's
+      ::    resources.
       ::
-      ::    A %pin build is never live, but its sub-builds could be live if
-      ::    they were run live as part of some other root build that was not
-      ::    pinned.
+      ::    If we haven't run a build yet, its entry in :subscribed will be `|`.
       ::
-      subscribed=(map build live=?)
+      subscribed=(map build ?)
       ::  resources-by-disc: live clay resources
       ::
       ::    Used for looking up which +resource's rely on a particular
@@ -1182,6 +1182,7 @@
     ::
     ++  start-live-build
       ^+  this
+      ::
       =/  =build  [now schematic]
       ::
       =.  state  (associate-build build duct %.y)
@@ -1190,13 +1191,17 @@
     ::
     ++  start-once-build
       ^+  this
+      ::
       =/  pin-date=@da  (date-from-schematic schematic)
-      =/  =build  [pin-date schematic]
+      =/  =build        [pin-date schematic]
       ::
       =.  state  (associate-build build duct %.n)
       ::
       (execute-loop (sy build ~))
     ::  +associate-build: associate +listener with :build in :state
+    ::
+    ::    Also marks :build as not subscribed in :subscribed.state,
+    ::    since even if it's live, we haven't made any subscriptions yet.
     ::
     ++  associate-build
       |=  [=build duct=^duct live=?]
@@ -1211,6 +1216,9 @@
       ::
           root-listeners
         (~(put ju root-listeners.state) build [duct live])
+      ::
+          subscribed
+        (~(put by subscribed.state) build |)
       ==
     ::
     --
@@ -1404,7 +1412,49 @@
     =.  results  (~(gas by results) fresh)
     ::
     state(results results)
+  ::  +add-listener-to-build: recursively add listener to build and sub-builds
+  ::
+  ::    Also adds :listener to newer rebuilds of the build if they share
+  ::    live listeners with :build.
+  ::
+  ::    Does not handle anything with :root-listeners.state or
+  ::    :builds-by-listener.state. Only modifies :listeners.state.
+  ::
+  ++  add-listener-to-build
+    |=  [=listener =build]
+    ^+  state
+    ::
+    =/  builds=(list ^build)  ~[build]
+    ::
+    |-  ^+  state
+    ?~  builds  state
+    ::
+    =.  listeners.state  (~(put by listeners.state) i.builds listener)
+    ::
+    =/  sub-builds=(list ^build)
+      (~(get-subs by-build-dag components.state) i.builds)
+    ::
+    =/  provisional-sub-builds=(list ^build)
+      (~(get-subs by-build-dag provisional-components.state) i.builds)
+    ::
+    =/  new-builds=(list ^build)
+      ::
+      =/  next-build=(unit ^build)
+        (~(find-next by-schematic by-schematic.builds.state) i.builds)
+      ::
+      ?~  next-build
+        ~
+      ?.  (any-shared-live-listeners build u.next-build)
+        ~
+      ~[u.next-build]
+    ::
+    $(builds :(welp t.builds sub-builds provisional-sub-builds new-builds))
   ::  +remove-listener-from-build: recursively remove listener from (sub)builds
+  ::
+  ::    If this removes the last root listener from a build, it will place
+  ::    the build in the cache.
+  ::
+  ::    TODO: does this need to call +cleanup?
   ::
   ++  remove-listener-from-build
     |=  [=listener =build]
@@ -1453,15 +1503,6 @@
     ::
     =.  listeners.state
       (~(del ju listeners.state) build listener)
-    ::  if there are no more live listeners, mark as no longer subscribed
-    ::
-    =?    subscribed.state
-        ::
-        ?!  %.  is-listener-live
-            %~  any  in
-            (fall (~(get by listeners.state) build) ~)
-      ::
-      (~(put by subscribed.state) build |)
     ::
     =/  sub-builds  (~(get-subs by-build-dag components.state) build)
     ::
@@ -1559,16 +1600,7 @@
           ::    `now`, any once builds will be from an earlier timestamp and
           ::    will therefore appear as :old-build later in this function.
           ::
-          ?:  ?&  ::  :build has been run as a once build
-                  ::
-                  !(~(got by subscribed.state) build)
-                  ::  :build has live listeners
-                  ::
-                  %.  is-listener-live
-                  %~  any  in
-                  (fall (~(get by listeners.state) build) ~)
-              ==
-            ::
+          ?:  &((is-build-live build) !(~(got by subscribed.state) build))
             (subscribe-to-completed-build-and-subs build)
           ::
           ..execute
@@ -1586,11 +1618,16 @@
         ::  copy :old-build's live listeners
         ::
         =.  state  (copy-old-live-listeners u.old-build build)
-        ::  if :old-build was a scry that we didn't subscribe to, rerun it
+        ::  if :build is a once scry, rerun it instead of promoting
+        ::
+        ::    Note that this will have suboptimal performance when :build is
+        ::    a once build of a previously run live build. In that case we
+        ::    should be able to promote the previous %scry. In a rare moment
+        ::    of erring on the side of simplicity over performance, we ignore
+        ::    that case and just rerun all once %scry's.
         ::
         ?:  ?&  ?=(%scry -.schematic.build)
-                ~|  [%not-in-subscribed (build-to-tape build)]
-                !(~(got by subscribed.state) build)
+                !(is-build-live build)
             ==
           (add-build-to-next build)
         ::  if we know some resources have changed, we need to rebuild :build
@@ -1628,34 +1665,6 @@
         ::  otherwise, not all new subs have results and we shouldn't be run
         ::
         (on-not-all-subs-have-results build uncached-new-subs)
-      ::  +subscribe-to-completed-build-and-subs: convert from once to live
-      ::
-      ::    If :build has been run as a once build, but now we're running
-      ::    it as a live build, then make subscriptions to any unpinned
-      ::    resources in any of :build's descendants.
-      ::
-      ::    Also mutate :subscribed.state to reflect the new subscriptions.
-      ::
-      ++  subscribe-to-completed-build-and-subs
-        |=  =build
-        ^+  ..execute
-        ::
-        ?:  ?=(%pin -.schematic.build)
-          ..execute
-        ::
-        =?    ..execute
-            ?=(%scry -.schematic.build)
-          (do-live-scry-accounting build)
-        ::
-        =/  sub-builds=(list ^build)
-          (~(get-subs by-build-dag components.state) build)
-        ::
-        |-  ^+  ..execute
-        ?~  sub-builds  ..execute
-        ::
-        =.  ..execute  ^$(build i.sub-builds)
-        ::
-        $(sub-builds t.sub-builds)
       ::  +add-build-to-next: run this build during the +make phase
       ::
       ++  add-build-to-next
@@ -1861,26 +1870,31 @@
         ::  unfinished future build
         ::
         [~ ..execute]
-      ::  if :next's result hasn't been wiped
+      ::  if :next isn't live, skip it
       ::
-      ?:  ?&  ?=(%value -.u.next-result)
-              !(has-pinned-client u.next)
-          ==
-        ::
-        =.  state  (advance-live-listeners build u.next)
-        =.  ..execute  (cleanup build)
-        ::  if the result has changed, send %made moves for live listeners
-        ::
-        =?    ..execute
-            ?&  ?=([~ %value *] result)
-                !=(build-result.u.result build-result.u.next-result)
-            ==
-          (send-mades u.next (root-live-listeners u.next))
-        ::
+      ?.  (is-build-live u.next)
         $(build u.next)
-      ::  if :next has been wiped, produce it
+      ::  if :next's result has been wiped, produce it
       ::
-      [`u.next ..execute]
+      ?:  ?=(%tombstone -.u.next-result)
+        [`u.next ..execute]
+      ::  move live listeners from :build to :next and cleanup :build
+      ::
+      ::    After moving listeners off of :build, it might not have any
+      ::    listeners and need to be deleted.
+      ::
+      =.  state  (advance-live-listeners build u.next)
+      =.  ..execute  (cleanup build)
+      ::  if the result has changed, send %made moves for live listeners
+      ::
+      =?    ..execute
+          ?&  ?=([~ %value *] result)
+              !=(build-result.u.result build-result.u.next-result)
+          ==
+        (send-mades u.next (root-live-listeners u.next))
+      ::  continue into the future, potentially sending more %made's
+      ::
+      $(build u.next)
     ::  +run-builds: run the builds and produce +build-receipts
     ::
     ::    Runs the builds and cleans up the build lists afterwards.
@@ -1931,17 +1945,24 @@
       ::
       ++  apply-build-receipt
         |=  made=build-receipt
+        ^+  ..execute
+        ::
+        =/  live=?  (is-build-live build.made)
         ::  update live resource tracking if the build is a live %scry
         ::
         =?    ..execute
-            ?&  ?=(%scry -.schematic.build.made)
-                (is-build-live build.made)
-            ==
-          ::
+            &(live ?=(%scry -.schematic.build.made))
           (do-live-scry-accounting build.made)
         ::  process :sub-builds.made
         ::
-        =.  state  (track-sub-builds build.made sub-builds.made)
+        =.  ..execute  (track-sub-builds build.made sub-builds.made)
+        ::  if we ran :build.made as a live build, mark it as subscribed
+        ::
+        ::    Also make sure that if it or any of its descendants were run as
+        ::    once builds previously, we convert them to live builds and
+        ::    subscribe to their resources.
+        ::
+        =?  ..execute  live  (subscribe-to-completed-build-and-subs build.made)
         ::
         ?-    -.result.made
             %build-result
@@ -1958,36 +1979,41 @@
       ::
       ::    TODO: don't we need to recurse downward into sub-sub-builds to
       ::    copy the listeners?
-      ::    TODO: make subscriptions on previously completed sub-builds.
       ::
       ++  track-sub-builds
         |=  [=build sub-builds=(list build)]
-        ^+  state
+        ^+  ..execute
         %+  roll  sub-builds
-        |=  [sub-build=^build accumulator=_state]
-        =.  state  accumulator
+        |=  [sub-build=^build accumulator=_..execute]
+        =.  ..execute  accumulator
         ::  freshen cache for sub-build
         ::
         =.  results.state  +:(access-cache sub-build)
         ::
-        %_    state
-            builds
+        %_    ..execute
+        ::
+            builds.state
           (~(put by-builds builds.state) sub-build)
         ::
-            components
+            components.state
           (~(put by-build-dag components.state) build sub-build)
         ::
-            listeners
+            listeners.state
+          ::  don't put a key with an empty value
+          ::
+          =-  ?~  unified-listeners
+                listeners.state
+              ::
+              (~(put by listeners.state) sub-build unified-listeners)
           ::
           =/  unified-listeners
             %-  ~(uni in (fall (~(get by listeners.state) sub-build) ~))
             (fall (~(get by listeners.state) build) ~)
-          ::  don't put a key with an empty value
           ::
-          ?~  unified-listeners
-            listeners.state
+          |-  ^+  listeners.state
+          ?~  unified-listeners  listeners.state
           ::
-          (~(put by listeners.state) sub-build unified-listeners)
+
         ==
       ::
       ::  +|  apply-build-result
@@ -2028,16 +2054,13 @@
         ::  promote live listeners if we can
         ::
         ::    When we have a :previous-build with a :previous-result, and the
-        ::    previous-build isn't a descendant of a %pin schematic, we need to
-        ::    advance live listeners because this is now the most recent build.
+        ::    previous-build was live, advance live listeners because this is
+        ::    now the most recent build.
         ::
         =?    state
             ?&  ?=(^ previous-build)
                 ?=(^ previous-result)
-                ::  TODO: double check on the tests for this. it seems wrong,
-                ::  as a build could have an unpinned client and a pinned
-                ::  client
-                !(has-pinned-client u.previous-build)
+                (is-build-live u.previous-build)
             ==
           (advance-live-listeners u.previous-build build)
         ::  if this build is a root build, add it to the cache
@@ -2068,14 +2091,10 @@
         ::  does :build have the same result as :u.previous-build?
         ::
         ::    We consider a result the same if we have a :previous-build which
-        ::    has a real %value, the current :build-result is the same, and
-        ::    the :previous-build doesn't have a pinned client. We can't
-        ::    promote pinned builds, so we always consider the result to be
-        ::    different.
+        ::    has a real %value and the current :build-result is the same.
         ::
         =/  same-result=?
           ?&  ?=(^ previous-build)
-              !(has-pinned-client u.previous-build)
               ?=([~ %value *] previous-result)
               =(build-result build-result.u.previous-result)
           ==
@@ -5001,10 +5020,6 @@
     =/  =disc  (extract-disc resource.schematic.build)
     ::
     %_    ..execute
-    ::  mark :build as subscribed
-    ::
-        subscribed.state
-      (~(put by subscribed.state) build &)
     ::  link :disc to :resource
     ::
         resources-by-disc.state
@@ -5120,7 +5135,7 @@
     ^-  (list listener)
     ::
     (skip (root-listeners build) is-listener-live)
-  ::  +root-listeners: listeners for which :build is the root build
+  ::  +root-listeners: all listeners for which :build is the root build
   ::
   ++  root-listeners
     |=  =build
@@ -5128,6 +5143,28 @@
     ::
     =-  ~(tap in `(set listener)`(fall - ~))
     (~(get by root-listeners.state) build)
+  ::  +live-listeners: live listeners on :build
+  ::
+  ++  live-listeners
+    |=  =build
+    ^-  (list listener)
+    ::
+    (skim (all-listeners build) is-listener-live)
+  ::  +once-listeners: once listeners on :build
+  ::
+  ++  once-listeners
+    |=  =build
+    ^-  (list listener)
+    ::
+    (skip (all-listeners build) is-listener-live)
+  ::  +listeners: all listeners on :build
+  ::
+  ++  all-listeners
+    |=  =build
+    ^-  (list listener)
+    ::
+    =-  ~(tap in `(set listener)`(fall - ~))
+    (~(get by listeners.state) build)
   ::  +is-build-blocked: is :build blocked on either builds or a resource?
   ::
   ++  is-build-blocked
@@ -5173,35 +5210,83 @@
   ++  is-build-live
     |=  =build
     ^-  ?
+    ::  %pin builds are never live
     ::
     ?:  ?=(%pin -.schematic.build)
-      %.n
-    ?:  (has-pinned-client build)
-      %.n
-    ::  check if :build has any live listeners
+      |
+    ::  if :build has a live listener, it's live
     ::
-    =/  listeners  ~(tap in (fall (~(get by listeners.state) build) ~))
-    ?~  listeners
-      %.y
-    (lien `(list listener)`listeners is-listener-live)
-  ::  +has-pinned-client: %.y if any of our ancestors are a %pin
-  ::
-  ++  has-pinned-client
-    |=  =build
+    ?:  %.  is-listener-live
+        %~  any  in
+        (fall (~(get by root-listeners.state) build) ~)
+      ::
+      &
+    ::  if any clients are live, :build is also live
+    ::
+    =/  clients=(list ^build)
+      (~(get-clients by-build-dag components.state) build)
+    ::  if :previous-build shares live listeners with :build, check it too
+    ::
+    ::    We're checking for whether :build is a live rebuild of
+    ::    :previous-build, in which case live listeners on
+    ::    :previous-build will have been copied onto :build.
+    ::
+    =/  previous-build=(unit ^build)
+      (~(find-previous by-schematic by-schematic.builds.state) build)
+    ::
+    =?    clients
+        ?&  ?=(^ previous-build)
+            (any-shared-live-listeners build u.previous-build)
+        ==
+      ::
+      [u.previous-build clients]
+    ::  if any client is live, we're live too
+    ::
+    %+  lien  clients
+    |=  client=^build
     ^-  ?
-    ::  iterate across all clients recursively, exiting early on %pin
+    ^$(build client)
+  ::  +any-shared-live-listeners: do live listeners intersect for two builds?
+  ::
+  ++  any-shared-live-listeners
+    |=  [a=build b=build]
+    ^-  ?
     ::
-    =/  clients  (~(get-clients by-build-dag components.state) build)
-    |-
-    ?~  clients
-      %.n
-    ?:  ?=(%pin -.schematic.i.clients)
-      %.y
-    %_    $
-        clients
-      %+  weld  t.clients
-      (~(get-clients by-build-dag components.state) i.clients)
-    ==
+    !(~(int in (sy (live-listeners a))) (sy (live-listeners b)))
+  ::  +subscribe-to-completed-build-and-subs: convert from once to live
+  ::
+  ::    If :build has been run as a once build, but now we're running
+  ::    it as a live build, then make subscriptions to any unpinned
+  ::    resources in any of :build's descendants.
+  ::
+  ++  subscribe-to-completed-build-and-subs
+    |=  =build
+    ^+  ..execute
+    ::  if :build is already subscribed, its sub-builds must be too; we're done
+    ::
+    ?:  (~(got by subscribed.state) build)
+      ..execute
+    ::  if we hit a %pin, we're done
+    ::
+    ?:  ?=(%pin -.schematic.build)
+      ..execute
+    ::  mark :build as subscribed
+    ::
+    =.  subscribed.state  (~(put by subscribed.state) build &)
+    ::
+    =?    ..execute
+        ?=(%scry -.schematic.build)
+      (do-live-scry-accounting build)
+    ::
+    =/  sub-builds=(list ^build)
+      (~(get-subs by-build-dag components.state) build)
+    ::
+    |-  ^+  ..execute
+    ?~  sub-builds  ..execute
+    ::
+    =.  ..execute  ^$(build i.sub-builds)
+    ::
+    $(sub-builds t.sub-builds)
   ::  +access-cache: access the +cache-line for :build, updating :last-accessed
   ::
   ::    Usage:
@@ -5382,16 +5467,6 @@
         `beam`[[ship.disc.rail desk.disc.rail [%da date.build]] spur.rail]
       ::
       (~(del ju blocks.state) scry-request build)
-    ::  mark that we're no longer subscribed to :build's resource
-    ::
-    ::    If :build is cached, we need to know we're not subscribed to it, so
-    ::    mark its entry in :subscribed.state to `|`. Otherwise, delete the
-    ::    entry entirely.
-    ::
-    =.  subscribed.state
-      ?:  is-build-cached
-        (~(put by subscribed.state) build |)
-      (~(del by subscribed.state) build)
     ::  check if :build depends on a live clay +resource
     ::
     =/  has-live-resource  ?=([%scry %c *] schematic.build)
