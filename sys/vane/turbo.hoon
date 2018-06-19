@@ -1422,12 +1422,16 @@
   ::
   ++  add-listener-to-build
     |=  [=listener =build]
-    ^+  state
+    ^+  listeners.state
     ::
     =/  builds=(list ^build)  ~[build]
     ::
-    |-  ^+  state
-    ?~  builds  state
+    |-  ^+  listeners.state
+    ?~  builds  listeners.state
+    ::  if :listener is already attached to :build, we're done
+    ::
+    ?:  (~(has ju listeners.state) build listener)
+      listeners.state
     ::
     =.  listeners.state  (~(put by listeners.state) i.builds listener)
     ::
@@ -1971,14 +1975,11 @@
             %blocks
           (apply-blocks build.made result.made sub-builds.made)
         ==
-      ::  +track-sub-builds:
+      ::  +track-sub-builds: apply learnings about sub-builds
       ::
       ::    For every sub-build discovered while running :build, we have to make
       ::    sure that we track that sub-build and that it is associated with the
       ::    right listeners.
-      ::
-      ::    TODO: don't we need to recurse downward into sub-sub-builds to
-      ::    copy the listeners?
       ::
       ++  track-sub-builds
         |=  [=build sub-builds=(list build)]
@@ -1999,21 +2000,18 @@
           (~(put by-build-dag components.state) build sub-build)
         ::
             listeners.state
-          ::  don't put a key with an empty value
           ::
-          =-  ?~  unified-listeners
-                listeners.state
-              ::
-              (~(put by listeners.state) sub-build unified-listeners)
-          ::
-          =/  unified-listeners
+          =/  new-listeners
+            %~  tap  in
             %-  ~(uni in (fall (~(get by listeners.state) sub-build) ~))
             (fall (~(get by listeners.state) build) ~)
           ::
           |-  ^+  listeners.state
-          ?~  unified-listeners  listeners.state
+          ?~  new-listeners  listeners.state
           ::
-
+          =.  listeners.state  (add-listener-to-build i.new-listeners sub-build)
+          ::
+          $(new-listeners t.new-listeners)
         ==
       ::
       ::  +|  apply-build-result
@@ -5429,10 +5427,6 @@
             (~(has by client-builds.provisional-components.state) build)
             (~(has by old.rebuilds.state) build)
             (~(has by listeners.state) build)
-            ::  check if the build is cached
-            ::
-            ::    TODO: don't give up; just delete the dependency tracking
-            ::
         ==
       ::  ~&  :*  %cleanup-no-op
       ::          build=(build-to-tape build)
@@ -5451,6 +5445,12 @@
     ::  remove :build from the list of attempted builds
     ::
     =?  builds.state  !is-build-cached  (~(del by-builds builds.state) build)
+    ::  mark :build as no longer subscribed and delete it if possible
+    ::
+    =.  subscribed.state
+      ?:  is-build-cached
+        (~(put by subscribed.state) build |)
+      (~(del by subscribed.state) build)
     ::  if no more builds at this date, remove the date from :resource-updates
     ::
     =?    resource-updates.state
