@@ -125,7 +125,7 @@
       =cache
       ::  max-cache-size: maximum number of builds to store in :cache
       ::
-      max-cache-size=_128
+      max-cache-size=_0
       ::  builds: registry of all attempted builds
       ::
       builds=build-registry
@@ -190,18 +190,6 @@
   ::
   ::  update tracking
   ::
-      ::  subscribed: are we subscribed to resources for build and sub-builds?
-      ::
-      ::    We need to know whether we've subscribed to all the resources under
-      ::    a build. If we've run a build as a once build, we don't subscribe
-      ::    to changes in its resources. We need that information stored
-      ::    persistently so if we run the same build later as a live build,
-      ::    we can use the result and recursively subscribe to the build's
-      ::    resources.
-      ::
-      ::    If we haven't run a build yet, its entry in :subscribed will be `|`.
-      ::
-      subscribed=(map build ?)
       ::  resources-by-disc: live clay resources
       ::
       ::    Used for looking up which +resource's rely on a particular
@@ -238,6 +226,18 @@
       ::  builds-by-date: all attempted builds, grouped by time
       ::
       by-date=(jug @da schematic)
+      ::  tracked: are we subscribed to resources for build and sub-builds?
+      ::
+      ::    We need to know whether we've subscribed to all the resources under
+      ::    a build. If we've run a build as a once build, we don't subscribe
+      ::    to changes in its resources. We need that information stored
+      ::    persistently so if we run the same build later as a live build,
+      ::    we can use the result and recursively subscribe to the build's
+      ::    resources.
+      ::
+      ::    If we haven't run a build yet, its entry in :tracked will be `|`.
+      ::
+      tracked=(map build ?)
   ==
 ::  +build-dag: a directed acyclic graph of builds
 ::
@@ -591,7 +591,7 @@
   ::
   =/  build-tape=tape  (build-to-tape build.e)
   "{<last-accessed.e>} {build-tape}"
-::  +by-cache: interface core for +cache
+::  +in-cache: interface core for +cache
 ::
 ++  in-cache
   |_  a=cache
@@ -865,6 +865,9 @@
     ::
         by-schematic
       (~(put by-schematic by-schematic.builds) build)
+    ::
+        tracked
+      (~(put by tracked.builds) build |)
     ==
   ::  +del: remove a build
   ::
@@ -878,7 +881,18 @@
     ::
         by-schematic
       (~(del by-schematic by-schematic.builds) build)
+    ::
+        tracked
+      (~(del by tracked.builds) build)
     ==
+  ::  +has: is a build stored in :builds?
+  ::
+  ++  has
+    |=  =build
+    ^-  ?
+    ::  checking in :by-date.builds should be fastest
+    ::
+    (~(has ju by-date.builds) date.build schematic.build)
   --
 ::  +by-build-dag: door for manipulating a :build-dag
 ::
@@ -1200,7 +1214,7 @@
       (execute-loop (sy build ~))
     ::  +associate-build: associate +listener with :build in :state
     ::
-    ::    Also marks :build as not subscribed in :subscribed.state,
+    ::    Also marks :build as not subscribed in :tracked.builds.state,
     ::    since even if it's live, we haven't made any subscriptions yet.
     ::
     ++  associate-build
@@ -1216,9 +1230,6 @@
       ::
           root-listeners
         (~(put ju root-listeners.state) build [duct live])
-      ::
-          subscribed
-        (~(put by subscribed.state) build |)
       ==
     ::
     --
@@ -1433,7 +1444,7 @@
     ?:  (~(has ju listeners.state) build listener)
       listeners.state
     ::
-    =.  listeners.state  (~(put by listeners.state) i.builds listener)
+    =.  listeners.state  (~(put ju listeners.state) i.builds listener)
     ::
     =/  sub-builds=(list ^build)
       (~(get-subs by-build-dag components.state) i.builds)
@@ -1458,8 +1469,6 @@
   ::    If this removes the last root listener from a build, it will place
   ::    the build in the cache.
   ::
-  ::    TODO: does this need to call +cleanup?
-  ::
   ++  remove-listener-from-build
     |=  [=listener =build]
     ^+  state
@@ -1476,16 +1485,15 @@
       ==
     ::  if we removed the last root listener, place :build in :cache.state
     ::
-    =?    cache.state
+    =?    ..execute
         &(was-root (~(has by root-listeners.state) build))
-      (~(put by cache.state) now build)
+      (put-in-cache build)
     ::
     =/  original-build  build
     =/  builds=(list ^build)  ~[build]
     ::
     |-  ^+  state
-    ?~  builds
-      state
+    ?~  builds  state
     ::
     =.  build  i.builds
     ::  are there any clients with this listener?
@@ -1604,13 +1612,18 @@
           ::    `now`, any once builds will be from an earlier timestamp and
           ::    will therefore appear as :old-build later in this function.
           ::
-          ?:  &((is-build-live build) !(~(got by subscribed.state) build))
+          ?:  &((is-build-live build) !(~(got by tracked.builds.state) build))
             (subscribe-to-completed-build-and-subs build)
           ::
           ..execute
         ::  place :build in :builds.state if it isn't already there
         ::
-        =.  builds.state  (~(put by-builds builds.state) build)
+        ::    If it is already there, make sure we don't overwrite its value,
+        ::    since that would clear its :tracked state.
+        ::
+        =?    builds.state
+            !(~(has by-builds builds.state) build)
+          (~(put by-builds builds.state) build)
         ::  old-build: most recent previous build with :schematic.build
         ::
         =/  old-build=(unit ^build)
@@ -2060,25 +2073,8 @@
                 ?=(^ previous-result)
                 (is-build-live u.previous-build)
             ==
+          ~&  %advancing
           (advance-live-listeners u.previous-build build)
-        ::  if this build is a root build, add it to the cache
-        ::
-        ::    Adding a build to the cache might cause stale builds to be popped
-        ::    off, since the cache has a maximum size.
-        ::
-        =^  stale-builds  cache.state
-          ?.  ?=(^ (root-listeners build))
-            [~ cache.state]
-          (~(put in-cache cache.state) [[now build] max-cache-size.state])
-        ::  cleanup :stale-builds now that they've been popped off the cache
-        ::
-        =.  ..execute
-          |-  ^+  ..execute
-          ?~  stale-builds  ..execute
-          ::
-          =.  ..execute  (cleanup i.stale-builds)
-          ::
-          $(stale-builds t.stale-builds)
         ::  send results to once listeners and delete them
         ::
         ::    Once listeners are deleted as soon as their %made has been sent
@@ -2107,6 +2103,9 @@
           ?>  ?=(^ previous-build)
           (link-rebuilds u.previous-build build)
         ::  if the result has changed, inform all live listeners
+        ::
+        ::    TODO: this doesn't work because we don't track which listeners
+        ::    we've sent mades for.
         ::
         =?    ..execute
             !same-result
@@ -5250,7 +5249,7 @@
     |=  [a=build b=build]
     ^-  ?
     ::
-    !(~(int in (sy (live-listeners a))) (sy (live-listeners b)))
+    !=(~ (~(int in (sy (live-listeners a))) (sy (live-listeners b))))
   ::  +subscribe-to-completed-build-and-subs: convert from once to live
   ::
   ::    If :build has been run as a once build, but now we're running
@@ -5262,7 +5261,7 @@
     ^+  ..execute
     ::  if :build is already subscribed, its sub-builds must be too; we're done
     ::
-    ?:  (~(got by subscribed.state) build)
+    ?:  ~|((build-to-tape build) (~(got by tracked.builds.state) build))
       ..execute
     ::  if we hit a %pin, we're done
     ::
@@ -5270,7 +5269,7 @@
       ..execute
     ::  mark :build as subscribed
     ::
-    =.  subscribed.state  (~(put by subscribed.state) build &)
+    =.  tracked.builds.state  (~(put by tracked.builds.state) build &)
     ::
     =?    ..execute
         ?=(%scry -.schematic.build)
@@ -5285,6 +5284,23 @@
     =.  ..execute  ^$(build i.sub-builds)
     ::
     $(sub-builds t.sub-builds)
+  ::  +put-in-cache: place :build in the cache
+  ::
+  ++  put-in-cache
+    |=  =build
+    ^+  ..execute
+    ::
+    =^  stale-builds  cache.state
+      ?.  (~(has by root-listeners.state) build)
+        [~ cache.state]
+      (~(put in-cache cache.state) [[now build] max-cache-size.state])
+    ::
+    |-  ^+  ..execute
+    ?~  stale-builds  ..execute
+    ::
+    =.  ..execute  (cleanup i.stale-builds)
+    ::
+    $(stale-builds t.stale-builds)
   ::  +access-cache: access the +cache-line for :build, updating :last-accessed
   ::
   ::    Usage:
@@ -5445,12 +5461,11 @@
     ::  remove :build from the list of attempted builds
     ::
     =?  builds.state  !is-build-cached  (~(del by-builds builds.state) build)
-    ::  mark :build as no longer subscribed and delete it if possible
+    ::  mark :build as no longer subscribed if we didn't already delete it
     ::
-    =.  subscribed.state
-      ?:  is-build-cached
-        (~(put by subscribed.state) build |)
-      (~(del by subscribed.state) build)
+    =?    tracked.builds.state
+        is-build-cached
+      (~(put by tracked.builds.state) build |)
     ::  if no more builds at this date, remove the date from :resource-updates
     ::
     =?    resource-updates.state
