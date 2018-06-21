@@ -125,7 +125,7 @@
       =cache
       ::  max-cache-size: maximum number of builds to store in :cache
       ::
-      max-cache-size=_0
+      max-cache-size=_32
       ::  builds: registry of all attempted builds
       ::
       builds=build-registry
