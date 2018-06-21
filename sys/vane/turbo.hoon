@@ -180,6 +180,12 @@
       ::  root-listeners: listeners attached only to root builds
       ::
       root-listeners=(jug build listener)
+      ::  notified-live-listeners: listeners we've sent %made moves on
+      ::
+      ::    We don't immediately send a %made move on a live listener if
+      ::    an older live build is still blocked.
+      ::
+      notified-live-listeners=(jug build listener)
       ::  builds-by-listener: reverse lookup for :root-listeners
       ::
       ::    A duct can only be attached to one root build, and it is either
@@ -1214,29 +1220,33 @@
       (execute-loop (sy build ~))
     ::  +associate-build: associate +listener with :build in :state
     ::
-    ::    Also marks :build as not subscribed in :tracked.builds.state,
-    ::    since even if it's live, we haven't made any subscriptions yet.
+    ::    Also recursively copies the listener to descendants.
     ::
     ++  associate-build
-      |=  [=build duct=^duct live=?]
+      |=  [=build =listener]
       ^+  state
       ::
       %_    state
           listeners
-        (~(put ju listeners.state) build [duct live])
+        (add-listener-to-build listener build)
       ::
           builds-by-listener
+        =,  listener
         (~(put by builds-by-listener.state) duct [build live])
       ::
           root-listeners
-        (~(put ju root-listeners.state) build [duct live])
+        (~(put ju root-listeners.state) build listener)
       ==
     ::
     --
   ::  +rebuild: rebuild any live builds based on +resource updates
   ::
   ++  rebuild
-    |=  [ship=@p desk=@tas case=[%da p=@da] care-paths=(set [care=care:clay =path])]
+    |=  $:  ship=@p
+            desk=@tas
+            case=[%da p=@da]
+            care-paths=(set [care=care:clay =path])
+        ==
     ^-  [(list move) ford-state]
     ::
     =<  finalize
@@ -1600,6 +1610,9 @@
       ++  gather-build
         |=  =build
         ^+  ..execute
+        ::
+        =/  live=?  (is-build-live build)
+        ~&  [%gather live=live (build-to-tape build)]
         ::  if we already have a result for this build, don't rerun the build
         ::
         =^  current-result  results.state  (access-cache build)
@@ -1612,10 +1625,18 @@
           ::    `now`, any once builds will be from an earlier timestamp and
           ::    will therefore appear as :old-build later in this function.
           ::
-          ?:  &((is-build-live build) !(~(got by tracked.builds.state) build))
+          =?    ..execute
+              &(live !(~(got by tracked.builds.state) build))
             (subscribe-to-completed-build-and-subs build)
+          ::  send %made moves on any new live listeners
           ::
-          ..execute
+          %+  send-mades  build
+          =-  ~&  [%gather-sending-mades -]  -
+          %+  skim  (root-listeners build)
+          |=  =listener
+          ^-  ?
+          ::
+          !(~(has ju notified-live-listeners.state) build listener)
         ::  place :build in :builds.state if it isn't already there
         ::
         ::    If it is already there, make sure we don't overwrite its value,
@@ -1644,7 +1665,7 @@
         ::    that case and just rerun all once %scry's.
         ::
         ?:  ?&  ?=(%scry -.schematic.build)
-                !(is-build-live build)
+                !live
             ==
           (add-build-to-next build)
         ::  if we know some resources have changed, we need to rebuild :build
@@ -2041,6 +2062,7 @@
                 sub-builds=(list build)
             ==
         ^+  ..execute
+        ~&  [%build-result (build-to-tape build)]
         ::
         ?>  (~(has ju by-date.builds.state) date.build schematic.build)
         ::  record the result returned from the build
@@ -2092,6 +2114,7 @@
               ?=([~ %value *] previous-result)
               =(build-result build-result.u.previous-result)
           ==
+        ~&  ?:  same-result  %same-result  %different-result
         ::  if we have the same result, link the rebuilds
         ::
         ::    We store identical rebuilds persistently so that we know we don't
@@ -2102,14 +2125,22 @@
           ::
           ?>  ?=(^ previous-build)
           (link-rebuilds u.previous-build build)
-        ::  if the result has changed, inform all live listeners
+        ::  notify all relevant live listeners
         ::
-        ::    TODO: this doesn't work because we don't track which listeners
-        ::    we've sent mades for.
-        ::
-        =?    ..execute
-            !same-result
-          (send-mades build (root-live-listeners build))
+        =.  ..execute
+          ::
+          %+  send-mades  build
+          ::  if the result is new, notify everyone who's listening
+          ::
+          ?.  same-result
+            (root-live-listeners build)
+          ::  same result; only notify new listeners
+          ::
+          %+  skim  (root-live-listeners build)
+          |=  =listener
+          ^-  ?
+          ::
+          !(~(has ju notified-live-listeners.state) build listener)
         ::  if the result has changed, rerun all old clients
         ::
         ::    When we have a previous result which isn't the same, we need to
@@ -2283,6 +2314,7 @@
                 sub-builds=(list build)
             ==
         ^+  ..execute
+        ~&  [%blocked (build-to-tape build)]
         ::  if we scryed, send clay a request for the path we blocked on reading
         ::
         =?    moves
@@ -5039,15 +5071,31 @@
     ==
   ::  +send-mades: send one %made move for :build per listener in :listeners
   ::
+  ::    Also updates :notified-live-listeners.state to reflect the fact
+  ::    that the moves have been sent.
+  ::
   ++  send-mades
-    |=  [=build listeners=(list listener)]  ^+  this
+    |=  [=build listeners=(list listener)]
+    ^+  ..execute
     ::
     =^  result  results.state  (access-cache build)
     ::
     ?>  ?=([~ %value *] result)
     ::
-    %_    this
+    %_    ..execute
+    ::
+        notified-live-listeners.state
+      ::
+      |-  ^+  notified-live-listeners.state
+      ?~  listeners  notified-live-listeners.state
+      ::
+      =.  notified-live-listeners.state
+        (~(put ju notified-live-listeners.state) build i.listeners)
+      ::
+      $(listeners t.listeners)
+    ::
         moves
+      ::
       %+  roll  listeners
       |=  [=listener moves=_moves]
       ::
@@ -5056,7 +5104,7 @@
           %made  date.build  %complete  build-result.u.result
       ==
     ==
-  ::  +unlink-sub-builds
+  ::  +unlink-sub-builds: remove links to realized and provisional descendants
   ::
   ++  unlink-sub-builds
     |=  =build
@@ -5461,6 +5509,10 @@
     ::  remove :build from the list of attempted builds
     ::
     =?  builds.state  !is-build-cached  (~(del by-builds builds.state) build)
+    ::  stop tracking which of this build's listeners have been notified
+    ::
+    =.  notified-live-listeners.state
+      (~(del by notified-live-listeners.state) build)
     ::  mark :build as no longer subscribed if we didn't already delete it
     ::
     =?    tracked.builds.state

@@ -55,12 +55,13 @@
 ::  test-pinned-in-pin
 ::  test-pinned-in-live
 ::  test-live-build-that-blocks
+::  test-once-twice
 ::  test-once-and-live
 ::  test-live-and-once
 ::  test-live-two-deep
 ::  test-live-three-deep
 ::  test-live-triangle
-  test-live-and-pinned-triangle
+::  test-live-and-pinned-triangle
 ::  test-call
 ::  test-call-scry-succeed
 ::  test-call-scry-fail
@@ -77,7 +78,7 @@
 ::  test-ride-scry-fail
 ::  test-ride-scry-block
 ::  test-ride-scry-promote
-::  test-five-oh-fora
+  test-five-oh-fora
 ::  test-alts
 ::  test-alts-and-live
 ::  test-double-alts
@@ -1463,6 +1464,53 @@
     results2
     results3
     results4
+    (expect-ford-empty ford-gate ~nul)
+  ==
+::
+++  test-once-twice
+  :-  `tank`leaf+"test-once-twice"
+  ::
+  =^  results1  ford-gate
+    %-  test-ford-call  :*
+      ford-gate
+      now=~1234.5.6
+      scry=(scry-succeed ~1234.5.6 [%noun !>(42)])
+      ::
+      ^=  call-args
+        :*  duct=~[/once-first]  type=~  %make  ~nul
+            %pin  ~1234.5.6
+            [%scry %c care=%x rail=[[~nul %desk] /bar/foo]]
+        ==
+      ::
+      ^=  moves
+        :~  :*  duct=~[/once-first]
+                %give  %made  ~1234.5.6  %complete
+                %success  %pin  ~1234.5.6
+                [%success %scry %noun !>(42)]
+    ==  ==  ==
+  ::
+  =^  results2  ford-gate
+    %-  test-ford-call  :*
+      ford-gate
+      now=~1234.5.7
+      scry=(scry-succeed ~1234.5.6 [%noun !>(42)])
+      ::
+      ^=  call-args
+        :*  duct=~[/once-second]  type=~  %make  ~nul
+            %pin  ~1234.5.6
+            [%scry %c care=%x rail=[[~nul %desk] /bar/foo]]
+        ==
+      ::
+      ^=  moves
+        :~  :*  duct=~[/once-second]
+                %give  %made  ~1234.5.6  %complete
+                %success  %pin  ~1234.5.6
+                [%success %scry %noun !>(42)]
+    ==  ==  ==
+  ::
+  ;:  weld
+    results1
+    results2
     (expect-ford-empty ford-gate ~nul)
   ==
 ::
@@ -2962,6 +3010,7 @@
             %c  %warp  [~nul ~nul]  %desk
             `[%mult [%da ~1234.5.6] (sy [%x /posts/a] [%x /posts/b] ~)]
     ==  ==
+  ~&  %results1
   ::
   =^  results2  ford-gate
     %-  test-ford-call-with-comparator  :*
@@ -2984,6 +3033,7 @@
           title='post-b'
           contents="post-b-contents"
     ==  ==
+  ~&  %results2
   ::
   =^  results3  ford-gate
     %-  test-ford-take-with-comparator  :*
@@ -3010,6 +3060,7 @@
           title='post-a'
           contents="post-a-contents-changed"
     ==  ==
+  ~&  %results3
   ::
   =^  results4  ford-gate
     %-  test-ford-call  :*
