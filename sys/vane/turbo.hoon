@@ -1610,9 +1610,6 @@
       ++  gather-build
         |=  =build
         ^+  ..execute
-        ::
-        =/  live=?  (is-build-live build)
-        ~&  [%gather live=live (build-to-tape build)]
         ::  if we already have a result for this build, don't rerun the build
         ::
         =^  current-result  results.state  (access-cache build)
@@ -1626,12 +1623,11 @@
           ::    will therefore appear as :old-build later in this function.
           ::
           =?    ..execute
-              &(live !(~(got by tracked.builds.state) build))
+              &((is-build-live build) !(~(got by tracked.builds.state) build))
             (subscribe-to-completed-build-and-subs build)
           ::  send %made moves on any new live listeners
           ::
           %+  send-mades  build
-          =-  ~&  [%gather-sending-mades -]  -
           %+  skim  (root-listeners build)
           |=  =listener
           ^-  ?
@@ -1655,7 +1651,10 @@
           (add-build-to-next build)
         ::  copy :old-build's live listeners
         ::
-        =.  state  (copy-old-live-listeners u.old-build build)
+        =.  listeners.state  (copy-old-live-listeners u.old-build build)
+        ::  now that we've copied previous listeners, we can check liveness
+        ::
+        =/  live=?  (is-build-live build)
         ::  if :build is a once scry, rerun it instead of promoting
         ::
         ::    Note that this will have suboptimal performance when :build is
@@ -1686,6 +1685,9 @@
         =/  old-subs  (~(get-subs by-build-dag components.state) u.old-build)
         ::
         =/  new-subs  (turn old-subs |=(^build +<(date date.build)))
+        ::  for each new sub, add all of :build's listeners
+        ::
+        =.  listeners.state  (add-listeners-to-subs build new-subs)
         ::  if all subs are in old.rebuilds.state, promote ourselves
         ::
         ?:  (levy new-subs ~(has by old.rebuilds.state))
@@ -1694,8 +1696,8 @@
         =.  state  (record-sub-builds-as-provisional build new-subs)
         ::  all new-subs have results, some are not rebuilds
         ::
-        ::    We rerun :build because these non-rebuild results might be different,
-        ::    possibly giving :build a different result.
+        ::    We rerun :build because these non-rebuild results might be
+        ::    different, possibly giving :build a different result.
         ::
         =/  uncached-new-subs  (skip new-subs is-build-stored)
         ?~  uncached-new-subs
@@ -1703,6 +1705,26 @@
         ::  otherwise, not all new subs have results and we shouldn't be run
         ::
         (on-not-all-subs-have-results build uncached-new-subs)
+      ::  +add-listeners-to-subs: for each sub, add all of :build's listeners
+      ::
+      ++  add-listeners-to-subs
+        |=  [=build subs=(list build)]
+        ^+  listeners.state
+        ::
+        =/  new-listeners  (all-listeners build)
+        ::
+        |-  ^+  listeners.state
+        ?~  subs  listeners.state
+        ::
+        =.  listeners.state
+          |-  ^+  listeners.state
+          ?~  new-listeners  listeners.state
+          ::
+          =.  listeners.state  (add-listener-to-build i.new-listeners i.subs)
+          ::
+          $(new-listeners t.new-listeners)
+        ::
+        $(subs t.subs)
       ::  +add-build-to-next: run this build during the +make phase
       ::
       ++  add-build-to-next
@@ -1762,17 +1784,16 @@
       ::
       ++  copy-old-live-listeners
         |=  [old=build new=build]
-        ^+  state
+        ^+  listeners.state
         ::
-        =/  old-live-listeners=(list listener)
-          =-  (skim - is-listener-live)
-          =-  ~(tap in `(set listener)`(fall - ~))
-          (~(get by listeners.state) old)
+        =/  old-live-listeners=(list listener)  (live-listeners old)
         ::
-        %+  roll  old-live-listeners
-        |=  [=listener state=_state]
+        |-  ^+  listeners.state
+        ?~  old-live-listeners  listeners.state
         ::
-        state(listeners (~(put ju listeners.state) new listener))
+        =.  listeners.state  (add-listener-to-build i.old-live-listeners new)
+        ::
+        $(old-live-listeners t.old-live-listeners)
       ::  +record-sub-builds-as-provisional:
       ::
       ::    When we can't directly promote ourselves, we're going to rerun
@@ -2062,7 +2083,6 @@
                 sub-builds=(list build)
             ==
         ^+  ..execute
-        ~&  [%build-result (build-to-tape build)]
         ::
         ?>  (~(has ju by-date.builds.state) date.build schematic.build)
         ::  record the result returned from the build
@@ -2095,7 +2115,6 @@
                 ?=(^ previous-result)
                 (is-build-live u.previous-build)
             ==
-          ~&  %advancing
           (advance-live-listeners u.previous-build build)
         ::  send results to once listeners and delete them
         ::
@@ -2114,7 +2133,6 @@
               ?=([~ %value *] previous-result)
               =(build-result build-result.u.previous-result)
           ==
-        ~&  ?:  same-result  %same-result  %different-result
         ::  if we have the same result, link the rebuilds
         ::
         ::    We store identical rebuilds persistently so that we know we don't
@@ -2128,19 +2146,38 @@
         ::  notify all relevant live listeners
         ::
         =.  ..execute
-          ::
-          %+  send-mades  build
-          ::  if the result is new, notify everyone who's listening
-          ::
           ?.  same-result
-            (root-live-listeners build)
-          ::  same result; only notify new listeners
+            (send-mades build (root-live-listeners build))
+          ::  if the result is the same, don't send results
           ::
-          %+  skim  (root-live-listeners build)
-          |=  =listener
-          ^-  ?
+          ::    Only send results for new listeners that weren't listening
+          ::    to the last build.
           ::
-          !(~(has ju notified-live-listeners.state) build listener)
+          ::    TODO: this logic is messy and error-prone
+          ::
+          =/  new-listeners
+            %+  skim  (root-live-listeners build)
+            |=  =listener
+            ^-  ?
+            ::
+            =/  was-notified  ~(has ju notified-live-listeners.state)
+            ::
+            ?&  ?=(^ previous-build)
+                !(was-notified u.previous-build listener)
+                !(was-notified build listener)
+            ==
+          ::  mark listeners as notified if we'll never send a %made on them
+          ::
+          =.  notified-live-listeners.state
+            |-  ^+  notified-live-listeners.state
+            ?~  new-listeners  notified-live-listeners.state
+            ::
+            =.  notified-live-listeners.state
+              (~(put ju notified-live-listeners.state) build i.new-listeners)
+            ::
+            $(new-listeners t.new-listeners)
+          ::
+          ..execute
         ::  if the result has changed, rerun all old clients
         ::
         ::    When we have a previous result which isn't the same, we need to
@@ -2314,7 +2351,6 @@
                 sub-builds=(list build)
             ==
         ^+  ..execute
-        ~&  [%blocked (build-to-tape build)]
         ::  if we scryed, send clay a request for the path we blocked on reading
         ::
         =?    moves
