@@ -2166,18 +2166,8 @@
                 !(was-notified u.previous-build listener)
                 !(was-notified build listener)
             ==
-          ::  mark listeners as notified if we'll never send a %made on them
           ::
-          =.  notified-live-listeners.state
-            |-  ^+  notified-live-listeners.state
-            ?~  new-listeners  notified-live-listeners.state
-            ::
-            =.  notified-live-listeners.state
-              (~(put ju notified-live-listeners.state) build i.new-listeners)
-            ::
-            $(new-listeners t.new-listeners)
-          ::
-          ..execute
+          (send-mades build new-listeners)
         ::  if the result has changed, rerun all old clients
         ::
         ::    When we have a previous result which isn't the same, we need to
