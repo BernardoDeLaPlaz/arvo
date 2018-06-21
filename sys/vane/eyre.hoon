@@ -1273,7 +1273,7 @@
           :_  pok(q t.but)
           ?+  i.but  (slav %p i.but)
             $anon  anon
-            $own   (fall (ship-from-cookies maf) our)
+            $own   our
           ==
         ::
             $on
