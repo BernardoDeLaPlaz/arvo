@@ -1230,6 +1230,7 @@
         $want  `%a
         $warp  `%c
         $wipe  `%f                                      ::  XX cache clear
+        %keep  `%t
       ==
     --
   --
