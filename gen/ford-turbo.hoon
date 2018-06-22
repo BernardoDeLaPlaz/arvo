@@ -21,6 +21,8 @@
   test-is-schematic-live
   test-date-from-schematic
   test-unify-jugs
+  test-cache-put
+  test-cache-has
   test-resource-wire-encoding
   test-parse-scaffold-direct
   test-parse-scaffold-indirect
@@ -53,6 +55,8 @@
   test-pinned-in-pin
   test-pinned-in-live
   test-live-build-that-blocks
+  test-once-twice
+  test-once-and-live
   test-live-and-once
   test-live-two-deep
   test-live-three-deep
@@ -202,6 +206,90 @@
   %+  unify-jugs:ford
     `(jug @tas @ud)`(my ~[[%a (sy 1 2 ~)] [%b (sy 3 4 ~)]])
   `(jug @tas @ud)`(my ~[[%b (sy 5 6 ~)] [%c (sy 7 8 ~)]])
+::
+++  test-cache-put
+  :-  `tank`leaf+"test-cache-put"
+  ::
+  =/  ford  (ford-gate now=~1234.5.6 eny=0xdead.beef scry=scry-is-forbidden)
+  ::
+  =/  schematic=schematic:ford  [%scry %c %x [~nul %home] /]
+  ::
+  =|  c=cache:ford
+  ::
+  =^  x  c
+    %-  ~(put in-cache:ford c)
+    [[last-accessed=~1234.5.6 build=[~1234.5.6 schematic]] max-size=2]
+  =^  y  c
+    %-  ~(put in-cache:ford c)
+    [[last-accessed=~1234.5.7 build=[~1234.5.6 schematic]] max-size=2]
+  =^  z  c
+    %-  ~(put in-cache:ford c)
+    [[last-accessed=~1234.5.8 build=[~1234.5.6 schematic]] max-size=1]
+  =^  w  c
+    %-  ~(put in-cache:ford c)
+    [[last-accessed=~1234.5.8 build=[~1234.5.8 schematic]] max-size=2]
+  ::
+  ;:  weld
+  ::
+    %-  expect-eq  !>
+    :_  [~ ~ ~]
+    [x y w]
+  ::
+    %-  expect-eq  !>
+    :_  z
+    :~  [~1234.5.6 schematic]
+        [~1234.5.6 schematic]
+    ==
+  ::
+    %-  expect-eq  !>
+    :_  c
+    :+  ^=  n
+        :-  last-accessed=~1234.5.8
+        build=[date=~1234.5.8 schematic=schematic]
+      ^=  l
+      :+  ^=  n
+          :-  last-accessed=~1234.5.8
+          build=[date=~1234.5.6 schematic=schematic]
+        l=~
+      r=~
+    r=~
+  ==
+::
+++  test-cache-has
+  :-  `tank`leaf+"test-cache-has"
+  ::
+  =/  ford  (ford-gate now=~1234.5.6 eny=0xdead.beef scry=scry-is-forbidden)
+  ::
+  =/  build=build:ford  [~1234.5.6 [%$ %noun !>(~)]]
+  ::
+  =|  c=cache:ford
+  ::
+  =^  x  c
+    (~(put in-cache:ford c) [[last-accessed=~1234.5.6 build] max-size=3])
+  =^  y  c
+    (~(put in-cache:ford c) [[last-accessed=~1234.5.7 build] max-size=3])
+  =^  z  c
+    (~(put in-cache:ford c) [[last-accessed=~1234.5.8 build] max-size=3])
+  ::
+  ;:  weld
+  ::
+    %-  expect-eq  !>
+    :-  [~ ~ ~]
+    [x y z]
+  ::
+    %-  expect-eq  !>
+    :-  ~[& & & |]
+    ^-  (list ?)
+    %-  turn
+    :_  ~(has in-cache:ford c)
+    ::
+    ^-  (list cache-key:ford)
+    :~  [last-accessed=~1234.5.6 build]
+        [last-accessed=~1234.5.7 build]
+        [last-accessed=~1234.5.8 build]
+        [last-accessed=~1234.5.9 build]
+    ==
+  ==
 ::
 ++  test-resource-wire-encoding
   :-  `tank`leaf+"test-resource-wire-encoding"
@@ -1369,6 +1457,135 @@
       scry=scry-is-forbidden
       ::
       call-args=[duct=~ type=~ %kill ~nul]
+      ::
+      ^=  moves
+        :~  :*  duct=~  %pass  wire=/~nul/clay-sub/~nul/desk
+                %c  %warp  [~nul ~nul]  %desk  ~
+    ==  ==  ==
+  ::
+  ;:  weld
+    results1
+    results2
+    results3
+    results4
+    (expect-ford-empty ford-gate ~nul)
+  ==
+::
+++  test-once-twice
+  :-  `tank`leaf+"test-once-twice"
+  ::
+  =^  results1  ford-gate
+    %-  test-ford-call  :*
+      ford-gate
+      now=~1234.5.6
+      scry=(scry-succeed ~1234.5.6 [%noun !>(42)])
+      ::
+      ^=  call-args
+        :*  duct=~[/once-first]  type=~  %make  ~nul
+            %pin  ~1234.5.6
+            [%scry %c care=%x rail=[[~nul %desk] /bar/foo]]
+        ==
+      ::
+      ^=  moves
+        :~  :*  duct=~[/once-first]
+                %give  %made  ~1234.5.6  %complete
+                %success  %pin  ~1234.5.6
+                [%success %scry %noun !>(42)]
+    ==  ==  ==
+  ::
+  =^  results2  ford-gate
+    %-  test-ford-call  :*
+      ford-gate
+      now=~1234.5.7
+      scry=(scry-succeed ~1234.5.6 [%noun !>(42)])
+      ::
+      ^=  call-args
+        :*  duct=~[/once-second]  type=~  %make  ~nul
+            %pin  ~1234.5.6
+            [%scry %c care=%x rail=[[~nul %desk] /bar/foo]]
+        ==
+      ::
+      ^=  moves
+        :~  :*  duct=~[/once-second]
+                %give  %made  ~1234.5.6  %complete
+                %success  %pin  ~1234.5.6
+                [%success %scry %noun !>(42)]
+    ==  ==  ==
+  ::
+  ;:  weld
+    results1
+    results2
+    (expect-ford-empty ford-gate ~nul)
+  ==
+::
+++  test-once-and-live
+  :-  `tank`leaf+"test-once-and-live"
+  ::
+  =/  scry-blocked  (scry-block ~1234.5.6)
+  =/  scry-42  (scry-succeed ~1234.5.6 [%noun !>(42)])
+  ::
+  =^  results1  ford-gate
+    %-  test-ford-call  :*
+      ford-gate
+      now=~1234.5.6
+      scry=scry-blocked
+      ::
+      ^=  call-args
+        :*  duct=~[/once]  type=~  %make  ~nul
+            [%pin ~1234.5.6 [%scry %c ren=%x rail=[[~nul %desk] /bar/foo]]]
+        ==
+      ::
+      ^=  moves
+        :~  :*  duct=~  %pass
+                wire=/~nul/scry-request/cx/~nul/desk/~1234.5.6/foo/bar
+                %c  %warp  [~nul ~nul]  %desk
+                ~  %sing  %x  [%da ~1234.5.6]  /foo/bar
+    ==  ==  ==
+  ::
+  =^  results2  ford-gate
+    %-  test-ford-call  :*
+      ford-gate
+      now=~1234.5.6  ::  same time as previous request
+      scry=scry-blocked
+      ::
+      ^=  call-args
+        :*  duct=~[/live]  type=~  %make  ~nul
+            [%scry %c care=%x rail=[[~nul %desk] /bar/foo]]
+        ==
+      ::
+      ^=  moves
+        :~  :*  duct=~  %pass  wire=/~nul/clay-sub/~nul/desk
+                %c  %warp  [~nul ~nul]  %desk
+                `[%mult [%da ~1234.5.6] (sy [%x /foo/bar]~)]
+    ==  ==  ==
+  ::
+  =^  results3  ford-gate
+    %-  test-ford-take  :*
+      ford-gate
+      now=~1234.5.8
+      scry=scry-is-forbidden
+      ::
+      ^=  take-args
+        :*  wire=/~nul/scry-request/cx/~nul/desk/~1234.5.6/foo/bar  duct=~
+            ^=  wrapped-sign  ^-  (hypo sign:ford-gate)  :-  *type
+            [%c %writ ~ [%x [%da ~1234.5.6] %desk] /bar/foo %noun !>(42)]
+        ==
+      ::
+      ^=  moves
+        :~  :*  duct=~[/live]  %give  %made  ~1234.5.6  %complete
+                [%success [%scry %noun !>(42)]]
+            ==
+            :*  duct=~[/once]  %give  %made  ~1234.5.6  %complete
+                [%success [%pin ~1234.5.6 %success [%scry %noun !>(42)]]]
+    ==  ==  ==
+  ::
+  =^  results4  ford-gate
+    %-  test-ford-call  :*
+      ford-gate
+      now=~1234.5.9
+      scry=scry-is-forbidden
+      ::
+      call-args=[duct=~[/live] type=~ %kill ~nul]
       ::
       ^=  moves
         :~  :*  duct=~  %pass  wire=/~nul/clay-sub/~nul/desk
@@ -6969,8 +7186,40 @@
 ++  expect-ford-empty
   |=  [ford-gate=_ford-gate ship=@p]
   ^-  tang
+  ::
+  =^  results1  ford-gate  (clear-ford-cache ford-gate)
+  ::
   =/  ford  *ford-gate
-  %-  expect-eq  !>
-  :-  (my [ship *ford-state:ford]~)
-  state-by-ship.ax.+>+<.ford
+  ::
+  =/  results2=tang
+    %-  expect-eq  !>
+    :-  =/  blank-slate  *ford-state:ford
+        (my [ship blank-slate(max-cache-size 0)]~)
+    state-by-ship.ax.+>+<.ford
+  ::
+  ;:  weld
+    results1
+    results2
+  ==
+::  +clear-ford-cache: resize ford's cache to zero, asserting no moves
+::
+++  clear-ford-cache
+  |=  ford-gate=_ford-gate
+  ^-  [tang _ford-gate]
+  ::
+  =^  moves  ford-gate
+    %-  test-ford-call  :*
+      ford-gate
+      now=~1234.5.6
+      scry=scry-is-forbidden
+      call-args=[duct=~[/clear] ~ %keep 0]
+      expected-moves=~
+    ==
+  ::
+  =/  output=tang
+    %-  expect-eq  !>
+    :-  ~
+    moves
+  ::
+  [output ford-gate]
 --
