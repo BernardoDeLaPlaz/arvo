@@ -5339,7 +5339,7 @@
       =/  result  (~(get by results.state) build)
       ?.  ?=([~ %value *] result)
         |
-      (~(has by cache.state) [last-accessed.u.result build])
+      (~(has in-cache cache.state) [last-accessed.u.result build])
     ::
     ?:  is-build-cached
       &
