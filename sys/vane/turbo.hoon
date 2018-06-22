@@ -1511,7 +1511,7 @@
     ::  if we removed the last root listener, place :build in :cache.state
     ::
     =?    ..execute
-        &(was-root (~(has by root-listeners.state) build))
+        &(was-root !(~(has by root-listeners.state) build))
       (put-in-cache build)
     ::
     =/  original-build  build
