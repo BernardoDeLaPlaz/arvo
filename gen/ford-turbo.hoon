@@ -121,6 +121,7 @@
   test-multi-core-same-dependency
   test-walk-prefer-grab
   test-walk-large-graph
+  test-cast-large-graph
 ==
 ++  test-tear
   :-  `tank`leaf+"test-tear"
@@ -7029,6 +7030,50 @@
   ;:  weld
     results1
     results2
+    (expect-ford-empty ford-gate ~nul)
+  ==
+::  +test-walk-large-graph, except we're going to shove data through it.
+::
+++  test-cast-large-graph
+  :-  `tank`leaf+"test-cast-large-graph"
+  ::
+  =^  results1  ford-gate
+    %-  test-ford-call-with-comparator  :*
+      ford-gate
+      now=~1234.5.6
+      scry=(scry-with-results large-mark-graph)
+      ::
+      ^=  call-args
+        :*  duct=~[/large]  type=~  %build  ~nul
+            %pin  ~1234.5.6
+            [%cast [~nul %home] %four [%volt [~nul %home] %one ["one" 1]]]
+        ==
+      ^=  comparator
+        |=  moves=(list move:ford-gate)
+        ::
+        ?>  =(1 (lent moves))
+        ?>  ?=([^ ~] moves)
+        ?>  ?=([* %give %made @da %complete %success %pin @da %success %cast *] i.moves)
+        ::
+        =/  result=cage  cage.build-result.build-result.result.p.card.i.moves
+        ::
+        %+  weld
+          %-  expect-eq  !>
+          :-  %four
+          p.result
+        ::
+        %+  weld
+          %-  expect-eq  !>
+          :-  ["grab" "one"]
+          q.q.result
+        ::
+        %-  expect-eq  !>
+        :-  &
+        (~(nest ut p.q.result) | -:!>(*[tape tape]))
+    ==
+  ::
+  ;:  weld
+    results1
     (expect-ford-empty ford-gate ~nul)
   ==
 ::  |data: shared data between cases
