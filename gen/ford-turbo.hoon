@@ -55,6 +55,7 @@
   test-pinned-in-pin
   test-pinned-in-live
   test-live-build-that-blocks
+  test-once-promote
   test-once-twice
   test-once-and-live
   test-live-and-once
@@ -1471,6 +1472,61 @@
     (expect-ford-empty ford-gate ~nul)
   ==
 ::
+++  test-once-promote
+  :-  `tank`leaf+"test-once-promote"
+  ::
+  =/  scry-type  [%atom %ud ~]
+  ::
+  =^  results1  ford-gate
+    %-  test-ford-call  :*
+      ford-gate
+      now=~1234.5.6
+      scry=(scry-succeed ~1234.5.6 [%noun scry-type 42])
+      ::
+      ^=  call-args
+        :*  duct=~[/once-first]  type=~  %build  ~nul
+            ^-  schematic:ford-gate  :*
+            %pin  ~1234.5.6
+            %same
+            [%scry %c care=%x rail=[[~nul %desk] /bar/foo]]
+        ==  ==
+      ::
+      ^=  moves
+        ^-  (list move:ford-gate)
+        :~  :*  duct=~[/once-first]
+                %give  %made  ~1234.5.6  %complete
+                %success  %pin  ~1234.5.6
+                %success  %same
+                [%success %scry %noun scry-type 42]
+    ==  ==  ==
+  ::
+  =^  results2  ford-gate
+    %-  test-ford-call  :*
+      ford-gate
+      now=~1234.5.7
+      scry=(scry-succeed ~1234.5.7 [%noun scry-type 42])
+      ::
+      ^=  call-args
+        :*  duct=~[/once-second]  type=~  %build  ~nul
+            %pin  ~1234.5.7
+            %same
+            [%scry %c care=%x rail=[[~nul %desk] /bar/foo]]
+        ==
+      ::
+      ^=  moves
+        :~  :*  duct=~[/once-second]
+                %give  %made  ~1234.5.7  %complete
+                %success  %pin  ~1234.5.7
+                %success  %same
+                [%success %scry %noun scry-type 42]
+    ==  ==  ==
+  ::
+  ;:  weld
+    results1
+    results2
+    (expect-ford-empty ford-gate ~nul)
+  ==
+::
 ++  test-once-twice
   :-  `tank`leaf+"test-once-twice"
   ::
@@ -1543,6 +1599,7 @@
                 %c  %warp  [~nul ~nul]  %desk
                 ~  %sing  %x  [%da ~1234.5.6]  /foo/bar
     ==  ==  ==
+  ~&  %results1
   ::
   =^  results2  ford-gate
     %-  test-ford-call  :*
@@ -1560,6 +1617,7 @@
                 %c  %warp  [~nul ~nul]  %desk
                 `[%mult [%da ~1234.5.6] (sy [%x /foo/bar]~)]
     ==  ==  ==
+  ~&  %results2
   ::
   =^  results3  ford-gate
     %-  test-ford-take  :*
@@ -1581,6 +1639,7 @@
             :*  duct=~[/once]  %give  %made  ~1234.5.6  %complete
                 [%success [%pin ~1234.5.6 %success [%scry %noun !>(42)]]]
     ==  ==  ==
+  ~&  %results3
   ::
   =^  results4  ford-gate
     %-  test-ford-call  :*
@@ -1594,6 +1653,7 @@
         :~  :*  duct=~[/live]  %pass  wire=/~nul/clay-sub/~nul/desk
                 %c  %warp  [~nul ~nul]  %desk  ~
     ==  ==  ==
+  ~&  %results4
   ::
   ;:  weld
     results1
