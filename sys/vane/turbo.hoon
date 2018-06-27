@@ -687,9 +687,10 @@
     =|  popped=(list build)
     |=  max-size=@ud
     ^-  [(list build) _a]
+    ::  if we're at a valid size, deduplicate the builds in :popped and return
     ::
     ?:  (lte size max-size)
-      [popped a]
+      [~(tap in (sy popped)) a]
     ::
     =+  ^-  [oldest=build new-a=_a]  pop-oldest
     ::
@@ -1365,57 +1366,35 @@
   ::
   ++  keep
     |=  max-cache-size=@ud
-    ^+  [moves state]
-    ::
-    =<  finalize
+    ^+  state
     ::
     =.  max-cache-size.state  max-cache-size
     ::
     =^  stale-builds  cache.state
       (~(resize in-cache cache.state) max-cache-size)
     ::
-    |-  ^+  ..execute
-    ?~  stale-builds  ..execute
-    ::
-    =.  state  (scrub-build i.stale-builds)
-    ::
-    $(stale-builds t.stale-builds)
+    (scrub-builds stale-builds)
   ::  +wipe: wipe half a +ford-state's cache, in LRU (least recently used) order
   ::
   ::    Delete half the cache, unless the cache is empty. In that case, remove
   ::    half the build results from :results.state, replacing them with
   ::    tombstones.
   ::
-  ++  wipe  ^+  [moves state]
-    ::  +wipe shouldn't affect live dependencies, which means no moves
-    ::
-    =<  =+  [moves state]=finalize
-        ::
-        ~|  wipe-moves+moves
-        ?>  ?=(~ moves)
-        ::
-        [~ state]
+  ++  wipe  ^+  state
     ::
     =/  num-entries=@ud  ~(size in-cache cache.state)
     ::  if we've already deleted everything in the cache, begin autophagy
     ::
     ?:  =(0 num-entries)
-      ..execute(state (wipe-results state))
+      wipe-results
     ::
     =/  num-to-keep=@ud  (div num-entries 2)
     ::
     =^  stale-builds  cache.state  (~(resize in-cache cache.state) num-to-keep)
     ::
-    |-  ^+  ..execute
-    ?~  stale-builds  ..execute
-    ::
-    =.  state  (scrub-build i.stale-builds)
-    ::
-    $(stale-builds t.stale-builds)
+    (scrub-builds stale-builds)
   ::
-  ++  wipe-results
-    |=  state=ford-state
-    ^+  state
+  ++  wipe-results  ^+  state
     ::
     =/  cache-list=(list [build cache-line])  ~(tap by results.state)
     ::
@@ -1549,7 +1528,6 @@
       ::
       |=  client=^build
       (~(has ju listeners.state) client listener)
-    ~&  [%remove-listener (build-to-tape build) listener=listener]
     ::  when there are clients, don't remove the listener from this build
     ::
     ?:  clients-with-listener
@@ -1683,7 +1661,6 @@
         ::  if no previous builds exist, we need to run :build
         ::
         ?~  old-build
-          ~&  [%gather-no-old (build-to-tape build)]
           (add-build-to-next build)
         ::  copy :old-build's live listeners
         ::
@@ -1702,18 +1679,15 @@
         ?:  ?&  ?=(%scry -.schematic.build)
                 !live
             ==
-          ~&  [%gather-once-scry (build-to-tape build)]
           (add-build-to-next build)
         ::  if we know some resources have changed, we need to rebuild :build
         ::
         ?:  (resources-changed build)
-          ~&  [%gather-resources-changed (build-to-tape build)]
           (add-build-to-next build)
         ::  if we don't have :u.old-build's result cached, we need to run :build
         ::
         =^  old-result  results.state  (access-cache u.old-build)
         ?~  old-result
-          ~&  [%gather-no-old-cache-line (build-to-tape build)]
           (add-build-to-next build)
         ::  if :u.old-build's result has been wiped, we need to run :build
         ::
@@ -1730,7 +1704,6 @@
         ::  if all subs are in old.rebuilds.state, promote ourselves
         ::
         ?:  (levy new-subs ~(has by old.rebuilds.state))
-          ~&  [%gather-all-subs-are-rebuilds (build-to-tape build)]
           (on-all-subs-are-rebuilds u.old-build build new-subs)
         ::
         =.  state  (record-sub-builds-as-provisional build new-subs)
@@ -1741,11 +1714,9 @@
         ::
         =/  uncached-new-subs  (skip new-subs is-build-stored)
         ?~  uncached-new-subs
-          ~&  [%gather-uncached-new-subs (build-to-tape build)]
           (add-build-to-next build)
         ::  otherwise, not all new subs have results and we shouldn't be run
         ::
-        ~&  [%gather-not-all-subs-have-results (build-to-tape build)]
         (on-not-all-subs-have-results build uncached-new-subs)
       ::  +add-listeners-to-subs: for each sub, add all of :build's listeners
       ::
@@ -2179,7 +2150,6 @@
               ?=([~ %value *] previous-result)
               =(build-result build-result.u.previous-result)
           ==
-        ~&  :-  ?:(same-result %same %different)  (build-to-tape build)
         ::  update our diagnostics
         ::
         =?  rebuilds.profile  same-result  +(rebuilds.profile)
@@ -2232,19 +2202,19 @@
         ::
         =.  state      (unlink-used-provisional-builds build sub-builds)
         =.  ..execute  (cleanup-orphaned-provisional-builds build)
-        ::  TODO: remove spurious calls to +cleanup
-        ::
-        ::  if we had a previous build, clean it up
-        ::
-        =?    ..execute
-            ?=(^ previous-build)
-          (cleanup u.previous-build)
-        ::  clean up our current build
-        ::
-        ::    If :build was a once build, now that we've sent its %made moves, we
-        ::    can delete it.
-        ::
-        =.  ..execute  (cleanup build)
+::        ::  TODO: remove spurious calls to +cleanup
+::        ::
+::        ::  if we had a previous build, clean it up
+::        ::
+::        =?    ..execute
+::            ?=(^ previous-build)
+::          (cleanup u.previous-build)
+::        ::  clean up our current build
+::        ::
+::        ::    If :build was a once build, now that we've sent its %made moves, we
+::        ::    can delete it.
+::        ::
+::        =.  ..execute  (cleanup build)
         ::  now that we've handled :build, check any future builds
         ::
         ::    We may have future results queued, waiting on this build to send
@@ -5455,7 +5425,6 @@
       ..execute
     ::  mark :build as subscribed
     ::
-    ~&  [%tracking (build-to-tape build)]
     =.  tracked.builds.state  (~(put by tracked.builds.state) build &)
     ::
     =?    ..execute
@@ -5479,17 +5448,17 @@
     ::
     =^  stale-builds  cache.state
       (~(put in-cache cache.state) [[now build] max-cache-size.state])
+    ::  make sure to keep the :results.state entry in sync with the cache
     ::
-    ~&  :+  put-in-cache=(build-to-tape build)
-          removed=(lent stale-builds)
-        num-cached=~(size in-cache cache.state)
+    =.  results.state
+      %+  ~(put by results.state)  build
+      ::
+      =/  result  (~(got by results.state) build)
+      ?.  ?=(%value -.result)
+        result
+      result(last-accessed now)
     ::
-    |-  ^+  state
-    ?~  stale-builds  state
-    ::
-    =.  state  (scrub-build i.stale-builds)
-    ::
-    $(stale-builds t.stale-builds)
+    (scrub-builds stale-builds)
   ::  +access-cache: access the +cache-line for :build, updating :last-accessed
   ::
   ::    Usage:
@@ -5515,7 +5484,6 @@
     ::
     =?    cache.state
         (~(has in-cache cache.state) old-cache-key)
-      ~&  [%freshening (build-to-tape build)]
       ::
       =/  new-cache-key=cache-key  old-cache-key(last-accessed now)
       ::  +put-unsafe is ok because we're deleting an element first
@@ -5536,8 +5504,7 @@
     ^-  [(list move) ford-state]
     ::  once we're done, +flop :moves to put them in chronological order
     ::
-    =<  ~&  profile
-        [(flop moves) state]
+    =<  [(flop moves) state]
     ::
     =/  discs  ~(tap in dirty-discs)
     ::
@@ -5559,9 +5526,7 @@
       ::  no resources, no subscriptions, no action.
       ::
       ?~  subscription-duct
-        ~&  [%finalize-no-sub disc=disc]
         $(discs t.discs)
-      ~&  [%finalize-cancel disc=disc]
       ::  cancel any clay subscriptions since we don't have any resources left
       ::
       =.  moves  :_  moves
@@ -5586,7 +5551,6 @@
             .=  (~(get by original-resources-by-disc) disc)
             (~(get by resources-by-disc.state) disc)
         ==
-      ~&  [%finalize-no-thrash disc=disc]
       ::
       $(discs t.discs)
     ::  if we had a previous subscription on a different duct, send a cancel
@@ -5596,10 +5560,8 @@
     ::    the new subscription will replace the old one.
     ::
     =?  moves  &(?=(^ subscription-duct) !=(duct u.subscription-duct))
-      ~&  [%finalize-cancel disc=disc]
       :_  moves
       (clay-cancel-subscription-move u.subscription-duct disc)
-    ~&  [%finalize-add disc=disc]
     ::  send a new clay request using the current duct
     ::
     =.  moves  :_  moves
@@ -5614,18 +5576,32 @@
     ^+  ..execute
     ::
     ?.  (~(has ju by-date.builds.state) date.build schematic.build)
-      ~&  [%cleanup-nonexistent (build-to-tape build)]
       ..execute
     ::
     ?^  (all-listeners build)
-      ~&  [%cleanup-has-listeners (build-to-tape build)]
       ..execute
     ::
     =/  was-build-tracked  (~(got by tracked.builds.state) build)
-    ~&  [%cleanup tracked=was-build-tracked (build-to-tape build)]
     ::  store the fact that we're no longer tracking :build
     ::
     =.  tracked.builds.state  (~(put by tracked.builds.state) build |)
+    ::  stop tracking which listeners we've sent %made moves on
+    ::
+    =.  notified-live-listeners.state
+      (~(del by notified-live-listeners.state) build)
+    ::  remove :build from :blocks.state if it was a %scry
+    ::
+    =?    blocks.state
+        ::
+        ?=([%scry %c *] schematic.build)
+      ::
+      %-  ~(del ju blocks.state)  :_  build
+      ^-  scry-request
+      =*  resource  resource.schematic.build
+      =*  disc      disc.rail.resource
+      :+  vane.resource  care.resource
+      `beam`[[ship.disc desk.disc [%da date.build]] spur.rail.resource]
+    ::  remove live tracking information for live %scry builds
     ::
     =?    ..execute
         ::
@@ -5635,7 +5611,6 @@
       =/  =disc  (extract-disc resource)
       ::
       =/  should-delete-resource=?
-        =-  ~&  [%cleanup-should-delete-resource -]  -
         ::  check if there are other live builds of this resource
         ::
         =/  dates=(list @da)
@@ -5654,7 +5629,7 @@
         (~(put in dirty-discs) disc)
       ::
       ..execute
-    ::  TODO: duplicate code with +scrub-build
+    ::  TODO: duplicate code with +scrub-builds
     ::
     =/  kids=(list ^build)
       ::  deduplicate by converting to a +set and back
@@ -5684,226 +5659,92 @@
       $(kids t.kids)
     ::  try to remove :build and its sub-builds completely
     ::
-    =.  state  (scrub-build build)
+    =.  state  (scrub-builds ~[build])
     ::
     ..execute
-  ::  +cleanup-old: try to clean up a build and its sub-builds
+  ::  +scrub-builds: try to remove :builds and their sub-builds completely
   ::
-  ++  cleanup-old
-    |=  =build
-    ^+  this
-    ::   does this build even exist?!
-    ::
-    ?.  (~(has ju by-date.builds.state) date.build schematic.build)
-      this
-    ::
-    ::  if something depends on this build, no-op and return
-    ::
-    ?:  ?|  (~(has by client-builds.components.state) build)
-            (~(has by client-builds.provisional-components.state) build)
-            (~(has by old.rebuilds.state) build)
-            (~(has by listeners.state) build)
-        ==
-      ~&  :*  %cleanup-no-op
-              build=(build-to-tape build)
-              has-client-builds=(~(has by client-builds.components.state) build)
-              has-provisional=(~(has by client-builds.provisional-components.state) build)
-              has-old-rebuilds=(~(has by old.rebuilds.state) build)
-              listeners=(~(get by listeners.state) build)
-          ==
-      this
-    ::  ~&  [%cleaning-up (build-to-tape build)]
-    ::
-    =/  is-build-cached=?  (is-build-under-cached-root build)
-    ~&  [?:(is-build-cached %cleanup-cached %cleanup) (build-to-tape build)]
-    ::  remove :build from :state, starting with its cache line
-    ::
-    =?  results.state  !is-build-cached  (~(del by results.state) build)
-    ::  remove :build from the list of attempted builds
-    ::
-    =/  was-build-tracked=?  (~(got by tracked.builds.state) build)
-    ::
-    =.  builds.state
-      ?:  is-build-cached
-        ::  :build is cached, so set :tracked to `|` but don't delete it
-        ::
-        (~(put by-builds builds.state) build)
-      ::  :build is not cached, so we can safely delete it
-      ::
-      (~(del by-builds builds.state) build)
-    ::  stop tracking which of this build's listeners have been notified
-    ::
-    =.  notified-live-listeners.state
-      (~(del by notified-live-listeners.state) build)
-    ::  if no more builds at this date, remove the date from :resource-updates
-    ::
-    =?    resource-updates.state
-        !(~(has by by-date.builds.state) date.build)
-      (~(del by resource-updates.state) date.build)
-    ::
-    =?    blocks.state
-        ::
-        ?=(%scry -.schematic.build)
-      ::
-      =/  =scry-request
-        =,  resource.schematic.build
-        :+  vane  care
-        `beam`[[ship.disc.rail desk.disc.rail [%da date.build]] spur.rail]
-      ::
-      (~(del ju blocks.state) scry-request build)
-    ::  clean up dependency tracking and maybe cancel clay subscription
-    ::
-    =?    this
-        ::  if we don't have a live resource directly, we have nothing to cancel
-        ::
-        ::    Also, if we'd already canceled the subscription, don't redo it.
-        ::
-        &(was-build-tracked ?=([%scry %c *] schematic.build))
-      ::
-      =/  =resource  resource.schematic.build
-      =/  =disc  (extract-disc resource)
-      ::
-      =/  should-delete-resource=?
-        ~&  %cleanup-should-delete-resource
-        ::  check if there are other live builds of this resource
-        ::
-        =/  dates=(list @da)
-          (fall (~(get by by-schematic.builds.state) schematic.build) ~)
-        ::
-        %+  levy  dates
-        |=  date=@da
-        ^-  ?
-        =/  other-build  [date schematic.build]
-        =(~ (live-listeners other-build))
-      ::
-      =?  resources-by-disc.state  should-delete-resource
-        (~(del ju resources-by-disc.state) disc resource)
-      ::
-      =?  dirty-discs  should-delete-resource
-        (~(put in dirty-discs) disc)
-      ::
-      this
-    ::  recurse on sub-builds
-    ::
-    =.  ..execute
-      ::  if we're not cached, then remove sub-build<-->client linkages
-      ::
-      ?.  is-build-cached
-        (unlink-sub-builds build)
-      ::  we're cached, so leave the linkages but recurse downward
-      ::
-      =/  sub-builds  (~(get-subs by-build-dag components.state) build)
-      ::
-      |-  ^+  ..execute
-      ?~  sub-builds  ..execute
-      ::
-      =.  ..execute  ^$(build i.sub-builds)
-      ::
-      $(sub-builds t.sub-builds)
-    ::  if there is a newer rebuild of :build, delete the linkage
-    ::
-    =/  rebuild  (~(get by new.rebuilds.state) build)
-    =?    rebuilds.state
-        ::
-        &(!is-build-cached ?=(^ rebuild))
-      ::
-      %_  rebuilds.state
-        new  (~(del by new.rebuilds.state) build)
-        old  (~(del by old.rebuilds.state) u.rebuild)
-      ==
-    ::  if we have a :newer-build, clean it up too
-    ::
-    =/  newer-build
-      (~(find-next by-schematic by-schematic.builds.state) build)
-    ::
-    ?~  newer-build
-      this
-    ::
-    (cleanup u.newer-build)
-  ::  +scrub-build: try to remove :build and its sub-builds completely
-  ::
-  ++  scrub-build
-    |=  =build
+  ++  scrub-builds
+    |=  builds=(list build)
     ^+  state
     ::
-    ?:  ?|  (~(has by client-builds.components.state) build)
-            (~(has by client-builds.provisional-components.state) build)
-            (~(has by old.rebuilds.state) build)
-            (~(has by listeners.state) build)
-            (is-build-under-cached-root build)
+    |^  ^+  state
+        ::
+        ?~  builds  state
+        ::  retrieve realized and provisional children before we start deleting
+        ::
+        =/  kids=(list build)
+          ::  deduplicate by converting to a +set and back
+          ::
+          %~  tap  in  %-  sy
+          ::  combine real and provisional sub-builds
+          ::
+          %+  weld
+            (~(get-subs by-build-dag components.state) i.builds)
+          (~(get-subs by-build-dag provisional-components.state) i.builds)
+        ::  check if a newer build exists for the same schematic
+        ::
+        =/  newer-build
+          (~(find-next by-schematic by-schematic.builds.state) i.builds)
+        ::  if there is a newer rebuild, treat it as a child for future recursion
+        ::
+        =?  kids  ?=(^ newer-build)  [u.newer-build kids]
+        ::
+        =.  state  (scrub-one-build i.builds)
+        ::
+        =/  next-builds=(list build)
+          %~  tap  in  %-  sy
+          (weld t.builds kids)
+        ::
+        $(builds next-builds)
+    ::  +scrub-one-build: try to remove :build without recursing on children
+    ::
+    ++  scrub-one-build
+      |=  =build
+      ^+  state
+      ::
+      ?:  ?|  (~(has by client-builds.components.state) build)
+              (~(has by client-builds.provisional-components.state) build)
+              (~(has by old.rebuilds.state) build)
+              (~(has by listeners.state) build)
+              (is-build-under-cached-root build)
+          ==
+        state
+      ::
+      =.  state
+        %_    state
+        ::
+            results
+          (~(del by results.state) build)
+        ::
+            builds
+          (~(del by-builds builds.state) build)
+        ::
+            components
+          (~(del-build by-build-dag components.state) build)
+        ::
+            provisional-components
+          (~(del-build by-build-dag provisional-components.state) build)
+        ::
+            new.rebuilds
+          (~(del by new.rebuilds.state) build)
+        ::
+            old.rebuilds
+          ::
+          ?~  rebuild=(~(get by new.rebuilds.state) build)
+            old.rebuilds.state
+          (~(del by old.rebuilds.state) u.rebuild)
         ==
-      ~&  [%scrub-noop (build-to-tape build)]
+      ::  if no more builds at this date, remove the date from :resource-updates
+      ::
+      =.  resource-updates.state
+        ::
+        ?:  (~(has by by-date.builds.state) date.build)
+          resource-updates.state
+        (~(del by resource-updates.state) date.build)
+      ::
       state
-    ~&  [%scrub (build-to-tape build)]
-    ::  retrieve realized and provisional children before we start deleting
-    ::
-    =/  kids=(list ^build)
-      ::  deduplicate by converting to a +set and back
-      ::
-      %~  tap  in  %-  sy
-      ::  combine real and provisional sub-builds
-      ::
-      %+  weld
-        (~(get-subs by-build-dag components.state) build)
-      (~(get-subs by-build-dag provisional-components.state) build)
-    ::  check if a newer build exists for the same schematic
-    ::
-    =/  newer-build
-      (~(find-next by-schematic by-schematic.builds.state) build)
-    ::  if there is a newer rebuild, treat it as a child for future recursion
-    ::
-    =?  kids  ?=(^ newer-build)  [u.newer-build kids]
-    ::  delete everything related to :build
-    ::
-    =:  results.state
-      (~(del by results.state) build)
-    ::
-        builds.state
-      (~(del by-builds builds.state) build)
-    ::
-        components.state
-      (~(del-build by-build-dag components.state) build)
-    ::
-        provisional-components.state
-      (~(del-build by-build-dag provisional-components.state) build)
-    ::
-        new.rebuilds.state
-      (~(del by new.rebuilds.state) build)
-    ::
-        old.rebuilds.state
-      ::
-      ?~  rebuild=(~(get by new.rebuilds.state) build)
-        old.rebuilds.state
-      (~(del by old.rebuilds.state) u.rebuild)
-    ::
-        notified-live-listeners.state
-      (~(del by notified-live-listeners.state) build)
-    ::
-        resource-updates.state
-      ::
-      ?:  (~(has by by-date.builds.state) date.build)
-        resource-updates.state
-      (~(del by resource-updates.state) date.build)
-    ::
-        blocks.state
-      ::
-      ?.  ?=(%scry -.schematic.build)
-        blocks.state
-      ::
-      %-  ~(del ju blocks.state)  :_  build
-      ^-  scry-request
-      =,  resource.schematic.build
-      :+  vane  care
-      `beam`[[ship.disc.rail desk.disc.rail [%da date.build]] spur.rail]
-    ==
-    ::  recurse on children, including the newer build
-    ::
-    |-  ^+  state
-    ?~  kids  state
-    ::
-    =.  state  ^$(build i.kids)
-    ::
-    $(kids t.kids)
+    --
   ::  +clay-sub-wire: the wire to use for a clay subscription
   ::
   ++  clay-sub-wire
@@ -6014,26 +5855,21 @@
     =/  ship-states=(list [ship=@p state=ford-state])
       ~(tap by state-by-ship.ax)
     ::
-    =^  moves  state-by-ship.ax
-      =|  moves=(list move)
-      ::
-      |-  ^+  [moves state-by-ship.ax]
-      ?~  ship-states  [moves state-by-ship.ax]
+    =.  state-by-ship.ax
+      |-  ^+  state-by-ship.ax
+      ?~  ship-states  state-by-ship.ax
       ::
       =+  ^-  [ship=@p state=ford-state]  i.ship-states
       =*  event-args   [[ship duct now scry-gate] state]
+      ::  call +wipe and apply mutations back to the ship state
       ::
-      =^  ship-moves  state  (keep:(per-event event-args) max-cache-size.task)
-      ::  apply mutations from the call to +wipe
-      ::
-      =.  moves  (weld moves ship-moves)
-      =.  state-by-ship.ax  (~(put by state-by-ship.ax) ship state)
+      =.  state-by-ship.ax
+        %+  ~(put by state-by-ship.ax)  ship
+        (keep:(per-event event-args) max-cache-size.task)
       ::
       $(ship-states t.ship-states)
     ::
-    ~|  moves=moves
-    ?>  ?=(~ moves)
-    [moves ford-gate]
+    [~ ford-gate]
   ::
       ::  %kill: cancel a %build
       ::
@@ -6054,24 +5890,21 @@
     =/  ship-states=(list [ship=@p state=ford-state])
       ~(tap by state-by-ship.ax)
     ::
-    =^  moves  state-by-ship.ax
-      =|  moves=(list move)
-      ::
-      |-  ^+  [moves state-by-ship.ax]
-      ?~  ship-states  [moves state-by-ship.ax]
+    =.  state-by-ship.ax
+      |-  ^+  state-by-ship.ax
+      ?~  ship-states  state-by-ship.ax
       ::
       =+  ^-  [ship=@p state=ford-state]  i.ship-states
       =*  event-args   [[ship duct now scry-gate] state]
+      ::  call +wipe and apply mutations back to the ship state
       ::
-      =^  ship-moves  state  wipe:(per-event event-args)
-      ::  apply mutations from the call to +wipe
-      ::
-      =.  moves  (weld moves ship-moves)
-      =.  state-by-ship.ax  (~(put by state-by-ship.ax) ship state)
+      =.  state-by-ship.ax
+        %+  ~(put by state-by-ship.ax)  ship
+        wipe:(per-event event-args)
       ::
       $(ship-states t.ship-states)
     ::
-    [moves ford-gate]
+    [~ ford-gate]
   ::
       %wegh
     ::

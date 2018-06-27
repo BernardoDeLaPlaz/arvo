@@ -238,8 +238,9 @@
   ::
     %-  expect-eq  !>
     :_  z
+    ::  stale builds get deduplicated
+    ::
     :~  [~1234.5.6 schematic]
-        [~1234.5.6 schematic]
     ==
   ::
     %-  expect-eq  !>
