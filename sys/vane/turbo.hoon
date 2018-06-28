@@ -1266,7 +1266,6 @@
           root-listeners
         (~(put ju root-listeners.state) build listener)
       ==
-    ::
     --
   ::  +rebuild: rebuild any live builds based on +resource updates
   ::
@@ -1637,7 +1636,7 @@
           ::
           =?    ..execute
               &((is-build-live build) !(~(got by tracked.builds.state) build))
-            (subscribe-to-completed-build-and-subs build)
+            (subscribe-to-build-and-subs build)
           ::  send %made moves on any new live listeners
           ::
           %+  send-mades  build
@@ -1646,14 +1645,6 @@
           ^-  ?
           ::
           !(~(has ju notified-live-listeners.state) build listener)
-        ::  place :build in :builds.state if it isn't already there
-        ::
-        ::    If it is already there, make sure we don't overwrite its value,
-        ::    since that would clear its :tracked state.
-        ::
-        =?    builds.state
-            !(~(has by-builds builds.state) build)
-          (~(put by-builds builds.state) build)
         ::  old-build: most recent previous build with :schematic.build
         ::
         =/  old-build=(unit ^build)
@@ -1668,6 +1659,14 @@
         ::  now that we've copied previous listeners, we can check liveness
         ::
         =/  live=?  (is-build-live build)
+        ::  place :build in :builds.state if it isn't already there
+        ::
+        ::    If it is already there, make sure we don't overwrite its value,
+        ::    since that would clear its :tracked state.
+        ::
+        =?    builds.state
+            !(~(has by-builds builds.state) build)
+          (~(put by-builds builds.state) build)
         ::  if :build is a once scry, rerun it instead of promoting
         ::
         ::    Note that this will have suboptimal performance when :build is
@@ -2032,7 +2031,7 @@
         ::    once builds previously, we convert them to live builds and
         ::    subscribe to their resources.
         ::
-        =?  ..execute  live  (subscribe-to-completed-build-and-subs build.made)
+        =?  ..execute  live  (subscribe-to-build-and-subs build.made)
         ::
         ?-    -.result.made
             %build-result
@@ -2063,6 +2062,7 @@
           ::
           ?:  (~(has by-builds builds.state) sub-build)
             builds.state
+            ~&  %tracking-new-sub^(build-to-tape sub-build)
           (~(put by-builds builds.state) sub-build)
         ::
             components.state
@@ -5406,13 +5406,13 @@
     ^-  ?
     ::
     !=(~ (~(int in (sy (live-listeners a))) (sy (live-listeners b))))
-  ::  +subscribe-to-completed-build-and-subs: convert from once to live
+  ::  +subscribe-to-build-and-subs: convert from once to live
   ::
   ::    If :build has been run as a once build, but now we're running
   ::    it as a live build, then make subscriptions to any unpinned
   ::    resources in any of :build's descendants.
   ::
-  ++  subscribe-to-completed-build-and-subs
+  ++  subscribe-to-build-and-subs
     |=  =build
     ^+  ..execute
     ::  if :build is already subscribed, its sub-builds must be too; we're done
@@ -5576,9 +5576,11 @@
     ^+  ..execute
     ::
     ?.  (~(has ju by-date.builds.state) date.build schematic.build)
+      ~&  %cleanup-noop-nonexistent
       ..execute
     ::
     ?^  (all-listeners build)
+      ~&  %cleanup-noop-has-listeners^(build-to-tape build)
       ..execute
     ::
     =/  was-build-tracked  (~(got by tracked.builds.state) build)
@@ -5594,6 +5596,7 @@
     =?    blocks.state
         ::
         ?=([%scry %c *] schematic.build)
+      ~&  %cleanup-blocks^(build-to-tape build)
       ::
       %-  ~(del ju blocks.state)  :_  build
       ^-  scry-request
@@ -5621,6 +5624,7 @@
         ^-  ?
         ::
         =(~ (live-listeners build(date other-date)))
+      ~&  %cleanup-should-delete-resource^should-delete-resource
       ::
       =?  resources-by-disc.state  should-delete-resource
         (~(del ju resources-by-disc.state) disc resource)
