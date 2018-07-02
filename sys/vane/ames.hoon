@@ -4,7 +4,7 @@
   =>  =~
 ::  structures
 =,  ames
-=+  protocol-version=8
+=+  protocol-version=1
 |%
 +=  move  [p=duct q=(wind note:able gift:able)]         ::  local move
 --
