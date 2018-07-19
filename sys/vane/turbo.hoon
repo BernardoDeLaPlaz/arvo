@@ -1189,14 +1189,11 @@
     |=  builds=(set build)
     ^+  ..execute
     ::
-    =.  ..execute  (execute builds)
-    ::
-    ?:  ?&  ?=(~ next-builds.state)
-            ?=(~ candidate-builds.state)
-        ==
+    =^  next-builds  ..execute  (execute builds)
+    ?~  next-builds
       ..execute
     ::
-    $(builds ~)
+    $(builds next-builds)
   ::  +execute: main recursive construction algorithm
   ::
   ::    Performs the three step build process: First, figure out which builds
@@ -1206,11 +1203,11 @@
   ::
   ++  execute
     |=  builds=(set build)
-    ^+  ..execute
+    ^+  [builds ..execute]
     ::
-    =.  ..execute  (gather builds force=%.n)
+    =^  gathered-builds  ..execute  (gather builds force=%.n)
     ::
-    =^  build-receipts  ..execute  run-builds
+    =^  build-receipts  ..execute  (run-builds gathered-builds)
     ::
     (reduce build-receipts)
   ::  +gather: collect builds to be run in a batch
@@ -1222,21 +1219,18 @@
   ::    candidates.
   ::
   ++  gather
-    |=  [builds=(set build) force=?]
-    ^+  ..execute
-    ::  add builds that were triggered by incoming event to the candidate list
+    =|  gathered=(set build)
+    |=  [builds=(list build) force=?]
+    ^+  [gathered ..execute]
     ::
-    =.  candidate-builds.state
-      (weld candidate-builds.state ~(tap in builds))
-    ::
-    |^  ::
-        ?~  candidate-builds.state
+    |^  ^+  [gathered ..execute]
+        ::
+        ?~  builds
           ..execute
         ::
-        =/  next  i.candidate-builds.state
-        =>  .(candidate-builds.state t.candidate-builds.state)
+        =^  new-builds  ..$  (gather-build i.builds)
         ::
-        $(..execute (gather-build next))
+        $(builds (weld t.builds new-builds))
     ::  +gather-build: looks at a single candidate build
     ::
     ::    This gate inspects a single build. It might move it to :next-builds,
@@ -1245,7 +1239,7 @@
     ::
     ++  gather-build
       |=  =build
-      ^+  ..execute
+      ^-  [to-gather=(list ^build) _..^$]
       ~&  [%gather-build (build-to-tape build)]
       ~|  [%duct duct]
       =/  duct-status  (~(got by ducts.state) duct)
@@ -1363,10 +1357,7 @@
         ::    :candidate-builds.state and we will run again before +execute runs
         ::    +make.
         ::
-        %_    ..execute
-            candidate-builds.state
-          (welp un-stored-new-subs candidate-builds.state)
-        ==
+        [un-stored-new-subs ..execute]
       ::
       =^  promotable  builds.state  (are-subs-unchanged old-subs new-subs)
       ?.  promotable
@@ -1400,7 +1391,11 @@
     ::
     ++  add-build-to-next
       |=  =build
-      ..execute(next-builds.state (~(put in next-builds.state) build))
+      ^-  [to-gather=(list ^build) _..^^$]
+      ::
+      =.  gathered  (~(put in gathered) build)
+      ::
+      [~ ..^^$]
     ::  +promote-build: promote result of :build to newer :date
     ::
     ::    Also performs relevant accounting, and possibly sends %made moves.

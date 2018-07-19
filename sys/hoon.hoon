@@ -1532,6 +1532,13 @@
     ?:  =(p.n.a p.n.b)
       [n.b $(b l.b, a l.a) $(b r.b, a r.a)]
     ?:  (gor p.n.a p.n.b)
+          ::  if we've been run as a once build but are now being run live
+          ::
+          ::    Note that this can only happen when the once build and live
+          ::    build are both requested during the same Arvo event with the
+          ::    same `now`. Otherwise, since a live build always starts at
+          ::    `now`, any once builds will be from an earlier timestamp and
+          ::    will therefore appear as :old-build later in this function.
       $(b [n.b $(b l.b, a [n.a l.a ~]) r.b], a r.a)
     $(b [n.b l.b $(b r.b, a [n.a ~ r.a])], a l.a)
   ::
