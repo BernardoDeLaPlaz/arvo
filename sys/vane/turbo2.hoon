@@ -1816,10 +1816,7 @@
       ?~  result
         [build [%blocks ~[pinned-sub] ~] accessed-builds]
       ::
-      ?:  ?=([%error *] u.result)
-        [build [%build-result %error message.u.result] accessed-builds]
-      ::
-      [build [%build-result %success %pin date u.result] accessed-builds]
+      [build [%build-result u.result] accessed-builds]
     ::
     ++  make-alts
       |=  choices=(list schematic)
@@ -2440,7 +2437,7 @@
         [build [%blocks ~[[date.build attempt]] ~] accessed-builds]
       ::
       ?.  ?=([%error *] u.attempt-result)
-        [build [%build-result %success %dude u.attempt-result] accessed-builds]
+        [build [%build-result u.attempt-result] accessed-builds]
       ::
       (return-error [$:error message.u.attempt-result])
     ::
@@ -3910,7 +3907,7 @@
       ::
       ?~  result
         [build [%blocks [date.build schematic]~ ~] accessed-builds]
-      [build [%build-result %success %same u.result] accessed-builds]
+      [build [%build-result u.result] accessed-builds]
     ::
     ++  make-scry
       ::  TODO: All accesses to :state which matter happens in this function;
