@@ -3419,6 +3419,7 @@
   ++  rad                                               ::  random in range
     |=  b/@  ^-  @
     ~_  leaf+"rad-zero"
+    ?<  =(0 b)
     =+  c=(raw (met 0 b))
     ?:((lth c b) c $(a +(a)))
   ::
