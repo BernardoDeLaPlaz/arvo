@@ -3352,7 +3352,7 @@
       |=  [w=@ p=@ a=@ b=@ g=pont n=@]  :: being passed in from above
       =/  p  ~(. fo p)
       =/  n  ~(. fo n)
-      ~%  %helper  ..$
+      ~%  %helper  ..$  ~
       |%
       ++  compress-point
       ~/  %compress-point
