@@ -683,7 +683,12 @@
         {$sag p/path q/*}                               ::  save to jamfile
         {$sav p/path q/@}                               ::  save to file
         {$url p/@t}                                     ::  activate url
-    ==                                                  ::
+        {$fog p/tint}
+        {$bog p/tint}
+        {$pri p/(list @c)}
+        {$eff p/deco}
+        {$nop p/(list @c)}                              :: no-op, to send debugging information to term.c 
+    ==                                                 
   ++  deco  ?(~ $bl $br $un)                            ::  text decoration
   ++  dill-belt                                         ::  new belt
     $%  {$aro p/?($d $l $r $u)}                         ::  arrow key

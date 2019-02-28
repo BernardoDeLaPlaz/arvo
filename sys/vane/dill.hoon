@@ -5,7 +5,7 @@
 =,  dill
 =>  |%                                                  ::  interface tiles
 ++  gill  (pair ship term)                              ::  general contact
---                                                      ::
+--  
 =>  |%                                                  ::  console protocol
 ++  all-axle  ?(axle)                                   ::
 ++  axle                                                ::
@@ -27,7 +27,7 @@
       tem/(unit (list dill-belt))                       ::  pending, reverse
       wid/_80                                           ::  terminal width
       pos/@ud                                           ::  cursor position
-      see/(list @c)                                     ::  current line
+      see/(list blit)                                   ::  current line - type = stub 
   ==                                                    ::
 --  =>                                                  ::
 |%                                                      ::  protocol outward
@@ -41,7 +41,7 @@
 ++  note-behn                                           ::
   $%  {$wegh $~}                                        ::
   ==                                                    ::
-++  note-clay                                           ::
+++  note-clay                                            ::
   $%  {$merg p/@tas q/@p r/@tas s/case t/germ:clay}     ::  merge desks
       {$warp p/ship q/riff:clay}                        ::  wait for clay hack
       {$wegh $~}                                        ::
@@ -177,101 +177,90 @@
         ?>  ?=(^ hey.all)
         +>(moz [[u.hey.all %give git] moz])
       ::
-      ++  done                                          ::  return gift
-        |=  git/gift:able
-        +>(moz :_(moz [hen %give git]))
-      ::
-      ++  from                                          ::  receive belt
-        |=  bit/dill-blit
-        ^+  +>
-        ?:  ?=($mor -.bit)
-          |-  ^+  +>.^$
-          ?~  p.bit  +>.^$
-          $(p.bit t.p.bit, +>.^$ ^$(bit i.p.bit))
-        ?:  ?=($out -.bit)
-          %+  done  %blit
-          :~  [%lin p.bit]
-              [%mor ~]
-              [%lin see]
-              [%hop pos]
-          ==
-        ?:  ?=($klr -.bit)
-          %+  done  %blit
-          :~  [%lin (cvrt:ansi p.bit)]
-              [%mor ~]
-              [%lin see]
-              [%hop pos]
-          ==
-        ?:  ?=($pro -.bit)
-          (done(see p.bit) %blit [[%lin p.bit] [%hop pos] ~])
-        ?:  ?=($pom -.bit)
-          =.  see  (cvrt:ansi p.bit)
-          (done %blit [[%lin see] [%hop pos] ~])
-        ?:  ?=($hop -.bit)
-          (done(pos p.bit) %blit [bit ~])
-        ?:  ?=($qit -.bit)
-          (dump %logo ~)
-        (done %blit [bit ~])
-      ::
-      ++  ansi
-        |%
-        ++  cvrt                                        ::  stub to (list @c)
-          |=  a/stub                                    ::  with ANSI codes
-          ^-  (list @c)
-          %-  zing  %+  turn  a
-          |=  a/(pair stye (list @c))
-          ^-  (list @c)
+      ++  done                                          ::  ++ done
+        |=  git/gift:able                               ::       sample: 'git' of type gift- tagged union ( zuse.hoon:616 )
+                                                        ::               (note that all will be of type $blit in practice)
+        +>(moz :_(moz [hen %give git]))                 ::       return a copy of the subject, but add a new move
+                                                        ::       to the list of moves already stored there at face 'mov'
+                                                        ::       
+      
+      ++  from                                          ::  ++ from
+        |=  bit/dill-blit                               ::       sample: 'bit' of type dill-blit (zuse.hoon:686 - a tagged union )
+        ^+  +>                                          ::       returns a modified subject
+        ?:  ?=($mor -.bit)                              ::    if tag in 'bit' == $mor (collection of blits), then
+          |-  ^+  +>.^$                                 ::       form core recursion point that returns subject
+          ?~  p.bit  +>.^$                              ::       when done, return everything
+          $(p.bit t.p.bit, +>.^$ ^$(bit i.p.bit))       ::       until then, process each sub-blit
+          
+        ?:  ?=($out -.bit)                              ::    if tag in 'bit' == $out (output on screen), then
+          %+  done  %blit                               ::       add blits onto the 'moves' list 
           ;:  weld
-              ?:  =(0 ~(wyt in p.p.a))  ~
-              `(list @c)`(zing (turn ~(tap in p.p.a) ef))
-              (bg p.q.p.a)
-              (fg q.q.p.a)
-              q.a
-              ?~(p.p.a ~ (ef ~))
-              (bg ~)
-              (fg ~)
+            `(list blit)`~[[%nop (tuba "OUT - output line")]]
+            `(list blit)`~[[%lin p.bit]]
+            `(list blit)`~[[%mor ~]]
+            see
+            `(list blit)`~[[%nop (tuba "OUT- post see")]]
           ==
-        ::
-        ++  ef  |=(a/^deco (scap (deco a)))             ::  ANSI effect
-        ::
-        ++  fg  |=(a/^tint (scap (tint a)))             ::  ANSI foreground
-        ::
-        ++  bg                                          ::  ANSI background
-          |=  a/^tint
-          %-  scap
-          =>((tint a) [+(p) q])                         ::  (add 10 fg)
-        ::
-        ++  scap                                        ::  ANSI escape seq
-          |=  a/$@(@ (pair @ @))
-          %-  (list @c)
-          :+  27  '['                                   ::  "\033[{a}m"
-          ?@(a :~(a 'm') :~(p.a q.a 'm'))
-        ::
-        ++  deco                                        ::  ANSI effects
-          |=  a/^deco  ^-  @
-          ?-  a
-            ~   '0'
-            $br  '1'
-            $un  '4'
-            $bl  '5'
+        ?:  ?=($klr -.bit)                              ::    if tag in 'bit' == $klr (styled output on screen)
+                                                        ::       p data is of type stub (hoon.hoon:426)
+          %+  done  %blit                               
+          ;:  weld
+            `(list blit)`~[[%nop (tuba "KLR - styled output - START ")]]
+            (convert p.bit)
+            `(list blit)`~[[%nop (tuba "KLR - styled output - END ")]]
           ==
-        ::
-        ++  tint                                        ::  ANSI colors (fg)
-          |=  a/^tint
-          ^-  (pair @ @)
-          :-  '3'
-          ?-  a
-            $k  '0'
-            $r  '1'
-            $g  '2'
-            $y  '3'
-            $b  '4'
-            $m  '5'
-            $c  '6'
-            $w  '7'
-            ~  '9'
+           
+        ?:  ?=($pro -.bit)                              :: pro = prompt, unstyled 
+          =.  see  `(list blit)`~[[%lin p.bit]]
+          %+  done  %blit
+          ;:  weld
+            `(list blit)`~[[%nop (tuba "PRO - unstyled prompt - START")]]
+            `(list blit)`~[[%lin p.bit]]
+            `(list blit)`~[[%hop pos]]
+            `(list blit)`~[[%nop (tuba "PRO - unstyled prompt - END")]]
           ==
-        --
+        ?:  ?=($pom -.bit)                              ::  pom =  styled prompt on screen
+          =.  see  (convert p.bit)
+          %+  done  %blit 
+          ;:  weld
+          `(list blit)`~[[%nop (tuba "POM - styled prompt - START")]]
+          `(list blit)`~[[%clr ~]]             :: clear the line
+            see
+          `(list blit)`~[[%hop pos]]
+          `(list blit)`~[[%nop (tuba "POM - styled prompt - END ")]]
+          ==
+        ?:  ?=($hop -.bit) 
+          (done(pos p.bit) %blit [bit ~])
+        ?:  ?=($qit -.bit)                              :: logo = not a blit, but a gift (parent of blit)
+          (dump %logo ~)            
+        (done %blit [bit ~])
+
+      :: convert: transform a stub - a list of pairs of { style, string}  (hoon.hoon:426)
+      ::          into a list of blits (which can be sent to term.c)
+      ++  convert
+        ::  input: a stub
+        |=  sslist=stub                               
+        ::  output: a list of blits
+        ^-  (list blit)
+        ::  steps: flatten 
+        %-  zing
+        ::  ...the result of mapping each style/string pair
+        %+  turn  sslist
+        ::      from: a pair of { style, string}
+        |=  ss=(pair stye (list @c))
+        ::      to: a list of blits that turn on the various colors and
+        ::      effects, emit the msg, then undo color & effect
+        ^-  (list blit) 
+        :+  `blit`[%fog p.q.p.ss] :: set foreground
+          `blit`[%bog p.q.p.ss]   :: set background
+        %+  weld
+          `(list blit)`(turn ~(tap in p.p.ss) |=(ef=deco [%eff ef]))
+        :~
+          `blit`[%pri q.ss]       :: print some text          
+          `blit`[%fog %g]         :: reset foreground
+          `blit`[%bog %k]         :: reset background
+          `blit`[%eff ~]          :: reset effects to normal                
+        ==
       ::
       ++  heft
         %_    .
@@ -512,7 +501,7 @@
     ::
     =*  duc  (need hey.all)
     =/  app  %hood
-    =/  see  (tuba "<awaiting {(trip app)}, this may take a minute>")
+    =/  see=(list blit)  ~[[%lin (tuba "<awaiting {(trip app)}, this may take a minute>")]]
     =/  zon=axon  [app input=[~ ~] width=80 cursor=0 see]
     ::
     =^  moz  all  abet:(~(into as duc zon) ~)
