@@ -1,4 +1,4 @@
-!:
+!: 
 ::  dill (4d), terminal handling
 ::
 |=  pit/vase
@@ -195,39 +195,31 @@
         ?:  ?=($out -.bit)                              ::    if tag in 'bit' == $out (output on screen), then
           %+  done  %blit                               ::       add blits onto the 'moves' list 
           ;:  weld
-            `(list blit)`~[[%nop (tuba "OUT - output line")]]
             `(list blit)`~[[%lin p.bit]]
             `(list blit)`~[[%mor ~]]
             see
-            `(list blit)`~[[%nop (tuba "OUT- post see")]]
           ==
         ?:  ?=($klr -.bit)                              ::    if tag in 'bit' == $klr (styled output on screen)
                                                         ::       p data is of type stub (hoon.hoon:426)
           %+  done  %blit                               
           ;:  weld
-            `(list blit)`~[[%nop (tuba "KLR - styled output - START ")]]
             (convert p.bit)
-            `(list blit)`~[[%nop (tuba "KLR - styled output - END ")]]
           ==
            
-        ?:  ?=($pro -.bit)                              :: pro = prompt, unstyled 
+        ?:  ?=($pro -.bit)                              :: pro = prompt, unstyled
           =.  see  `(list blit)`~[[%lin p.bit]]
           %+  done  %blit
           ;:  weld
-            `(list blit)`~[[%nop (tuba "PRO - unstyled prompt - START")]]
             `(list blit)`~[[%lin p.bit]]
             `(list blit)`~[[%hop pos]]
-            `(list blit)`~[[%nop (tuba "PRO - unstyled prompt - END")]]
           ==
         ?:  ?=($pom -.bit)                              ::  pom =  styled prompt on screen
           =.  see  (convert p.bit)
           %+  done  %blit 
           ;:  weld
-          `(list blit)`~[[%nop (tuba "POM - styled prompt - START")]]
           `(list blit)`~[[%clr ~]]             :: clear the line
             see
           `(list blit)`~[[%hop pos]]
-          `(list blit)`~[[%nop (tuba "POM - styled prompt - END ")]]
           ==
         ?:  ?=($hop -.bit) 
           (done(pos p.bit) %blit [bit ~])

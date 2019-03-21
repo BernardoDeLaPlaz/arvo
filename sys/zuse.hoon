@@ -678,17 +678,17 @@
     $%  {$bel ~}                                        ::  make a noise
         {$clr ~}                                        ::  clear the screen
         {$hop p/@ud}                                    ::  set cursor position
-        {$lin p/(list @c)}                              ::  set current line
+        {$lin p/(list @c)}                              ::  print line text
         {$mor ~}                                        ::  newline
-        {$sag p/path q/*}                               ::  save to jamfile
+        {$sag p/path q/*}                               ::  save to jamfile 
         {$sav p/path q/@}                               ::  save to file
         {$url p/@t}                                     ::  activate url
-        {$fog p/tint}
-        {$bog p/tint}
-        {$pri p/(list @c)}
-        {$eff p/deco}
-        {$nop p/(list @c)}                              :: no-op, to send debugging information to term.c 
-    ==                                                 
+        {$fog p/tint}                                   ::  foreground color
+        {$bog p/tint}                                   ::  background color
+        {$pri p/(list @c)}                              ::  print text without moving cursor or line
+        {$eff p/deco}                                   ::  effect like underline, etc.
+        {$nop p/(list @c)}                              ::  no op, carries text payload for debugging help
+    ==                                                  ::
   ++  deco  ?(~ $bl $br $un)                            ::  text decoration
   ++  dill-belt                                         ::  new belt
     $%  {$aro p/?($d $l $r $u)}                         ::  arrow key
