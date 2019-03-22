@@ -172,62 +172,74 @@
         ?~  wol  +>.^$
         $(wol t.wol, +>.^$ (from %out (tuba i.wol)))
       ::
-      ++  dump                                          ::  pass down to hey
+      ++  dump                                ::  pass down to hey
         |=  git/gift:able
         ?>  ?=(^ hey.all)
         +>(moz [[u.hey.all %give git] moz])
       ::
-      ++  done                                          ::  ++ done
-        |=  git/gift:able                               ::       sample: 'git' of type gift- tagged union ( zuse.hoon:616 )
-                                                        ::               (note that all will be of type $blit in practice)
-        +>(moz :_(moz [hen %give git]))                 ::       return a copy of the subject, but add a new move
-                                                        ::       to the list of moves already stored there at face 'mov'
-                                                        ::       
-      
-      ++  from                                          ::  ++ from
-        |=  bit/dill-blit                               ::       sample: 'bit' of type dill-blit (zuse.hoon:686 - a tagged union )
-        ^+  +>                                          ::       returns a modified subject
-        ?:  ?=($mor -.bit)                              ::    if tag in 'bit' == $mor (collection of blits), then
-          |-  ^+  +>.^$                                 ::       form core recursion point that returns subject
-          ?~  p.bit  +>.^$                              ::       when done, return everything
-          $(p.bit t.p.bit, +>.^$ ^$(bit i.p.bit))       ::       until then, process each sub-blit
+      ++  done                                ::  ++ done
+        |=:able                               ::     sample: 'git' of type gift-
+                                              ::     tagged union (zuse.hoon)
+                                              ::     (note that all will be of
+                                              ::     type $blit in practice)
+                                              
+        +>(moz :_(moz [hen %give git]))       ::     return a copy of the
+                                              ::     subject, but add a new move
+                                              ::     to the list of moves
+                                              ::     already stored there at
+                                              ::     face 'mov'
+
+      ++  from                                ::  ++ from
+        |=  bit/dill-blit                     ::     sample: 'bit' of type
+                                              ::     dill-blit (zuse.hoon - a
+                                              ::     tagged union )
+        
+        ^+  +>                                ::     returns a modified subject
+        
+        ?:  ?=($mor -.bit)                    ::    if tag in 'bit' == $mor
+                                              ::    (collection of blits), then
+          |-  ^+  +>.^$                       ::    form core recursion point
+                                              ::    that returns subject
           
-        ?:  ?=($out -.bit)                              ::    if tag in 'bit' == $out (output on screen), then
-          %+  done  %blit                               ::       add blits onto the 'moves' list 
+          ?~  p.bit  +>.^$                    ::    when done, return everything
+          $(p.bit t.p.bit, +>.^$ ^$(bit i.p.bit)) :: until then, process each
+                                              :: sub-blit
+          
+        ?:  ?=($out -.bit)                    ::    if tag in 'bit' == $out add
+          %+  done  %blit                     ::    blits onto the 'moves' list
           ;:  weld
             `(list blit)`~[[%lin p.bit]]
             `(list blit)`~[[%mor ~]]
             see
           ==
-        ?:  ?=($klr -.bit)                              ::    if tag in 'bit' == $klr (styled output on screen)
-                                                        ::       p data is of type stub (hoon.hoon:426)
+        ?:  ?=($klr -.bit)                     ::    if tag in 'bit' == $klr
+                                               ::    (styled output) data is of
+                                               ::    type stub (hoon.hoon)
           %+  done  %blit                               
-          ;:  weld
             (convert p.bit)
-          ==
-           
-        ?:  ?=($pro -.bit)                              :: pro = prompt, unstyled
+        ?:  ?=($pro -.bit)                     :: pro = prompt, unstyled 
           =.  see  `(list blit)`~[[%lin p.bit]]
           %+  done  %blit
           ;:  weld
             `(list blit)`~[[%lin p.bit]]
             `(list blit)`~[[%hop pos]]
           ==
-        ?:  ?=($pom -.bit)                              ::  pom =  styled prompt on screen
-          =.  see  (convert p.bit)
+        ?:  ?=($pom -.bit)                     ::  pom =  styled prompt 
+          =.  see  (convert p.bit)             ::     convert the data to list of
+                                               ::     blits, save
           %+  done  %blit 
           ;:  weld
           `(list blit)`~[[%clr ~]]             :: clear the line
-            see
-          `(list blit)`~[[%hop pos]]
+            see                                :: send blits for prompt
+          `(list blit)`~[[%hop pos]]           :: move to bottom of screen
           ==
-        ?:  ?=($hop -.bit) 
+        ?:  ?=($hop -.bit)                     ::  hop  = move to position
           (done(pos p.bit) %blit [bit ~])
-        ?:  ?=($qit -.bit)                              :: logo = not a blit, but a gift (parent of blit)
-          (dump %logo ~)            
+        ?:  ?=($qit -.bit)                     :: logo = not a blit, but a gift
+          (dump %logo ~)                       ::  (parent of blit)
         (done %blit [bit ~])
 
-      :: convert: transform a stub - a list of pairs of { style, string}  (hoon.hoon:426)
+      :: convert: transform a stub - a list of pairs of { style, string}  (hoon.hoon)
       ::          into a list of blits (which can be sent to term.c)
       ++  convert
         ::  input: a stub
@@ -257,7 +269,7 @@
       ++  heft
         %_    .
             moz
-          :*  [hen %pass /heft/ames %a %wegh ~]
+          :*  [hen %pass /heft/ames %a %wegh ~ ~]
               [hen %pass /heft/behn %b %wegh ~]
               [hen %pass /heft/clay %c %wegh ~]
               [hen %pass /heft/eyre %e %wegh ~]
